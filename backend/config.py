@@ -36,6 +36,10 @@ AI_EFFORT = os.getenv("AI_EFFORT", "high").strip()
 AI_FAST_EFFORT = os.getenv("AI_FAST_EFFORT", "medium").strip()
 AI_TIMEOUT_SECONDS = float(os.getenv("AI_TIMEOUT_SECONDS", "300"))
 
+# When set (e.g. on a public deployment), every page and API call requires this access
+# code via the browser's sign-in prompt, so strangers cannot spend the AI key's credit.
+ACCESS_CODE = os.getenv("ACCESS_CODE", "").strip()
+
 
 def ai_configured() -> bool:
     return bool(AI_API_KEY)

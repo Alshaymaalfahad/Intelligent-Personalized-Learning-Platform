@@ -97,3 +97,18 @@ def test_specializations_endpoint_and_frontend_served():
         specs = c.get("/api/specializations").json()
         assert any(s["name"] == "Information Systems" and s["interests"] for s in specs)
         assert c.get("/profile.html").status_code == 200
+
+
+def test_access_code_protects_pages_and_api(monkeypatch):
+    import base64
+
+    from backend import config
+
+    monkeypatch.setattr(config, "ACCESS_CODE", "s3cret")
+    auth = lambda code: {"Authorization": "Basic " + base64.b64encode(f"team:{code}".encode()).decode()}
+    with client() as c:
+        assert c.get("/api/health").status_code == 200  # platform health check stays open
+        assert c.get("/index.html").status_code == 401
+        assert c.get("/api/specializations").headers["www-authenticate"].startswith("Basic")
+        assert c.get("/api/specializations", headers=auth("wrong")).status_code == 401
+        assert c.get("/api/specializations", headers=auth("s3cret")).status_code == 200

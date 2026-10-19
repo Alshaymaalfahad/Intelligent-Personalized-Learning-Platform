@@ -1,0 +1,19 @@
+# Render blueprint: the whole platform (API + pages) as one web service.
+# New → Blueprint → pick this repository. Secrets are entered in the Render dashboard, never here.
+services:
+  - type: web
+    name: intelligent-learning-platform
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: AI_PROVIDER
+        value: openai
+      - key: OPENAI_API_KEY
+        sync: false   # asked for in the dashboard
+      - key: ACCESS_CODE
+        sync: false   # the code testers type to open the platform

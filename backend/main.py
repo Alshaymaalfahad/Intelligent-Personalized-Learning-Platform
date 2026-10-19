@@ -3,7 +3,9 @@
     uvicorn backend.main:app --reload
 """
 
+import base64
 import logging
+import secrets
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
@@ -46,6 +48,30 @@ SECURITY_HEADERS = {
     "Referrer-Policy": "no-referrer",
     "X-Frame-Options": "DENY",
 }
+
+
+def _has_access(request: Request) -> bool:
+    """HTTP Basic auth: any username, password = ACCESS_CODE."""
+    header = request.headers.get("authorization", "")
+    if not header.lower().startswith("basic "):
+        return False
+    try:
+        _, _, password = base64.b64decode(header[6:]).decode("utf-8").partition(":")
+    except (ValueError, UnicodeDecodeError):
+        return False
+    return secrets.compare_digest(password.encode(), config.ACCESS_CODE.encode())
+
+
+@app.middleware("http")
+async def access_code(request: Request, call_next):
+    # /api/health stays open for the hosting platform's health check.
+    if config.ACCESS_CODE and request.url.path != "/api/health" and not _has_access(request):
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "رمز الدخول مطلوب."},
+            headers={"WWW-Authenticate": 'Basic realm="Intelligent Learning Platform", charset="UTF-8"'},
+        )
+    return await call_next(request)
 
 
 @app.middleware("http")
