@@ -1,0 +1,18 @@
+# Secrets — never commit the real API key
+.env
+.env.*
+!.env.example
+
+# Local database files
+data/*
+!data/.gitkeep
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Editors / OS
+.vscode/
+.DS_Store

@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ملف المتدرب</title>
+  <link rel="stylesheet" href="css/style.css?v=3">
+</head>
+<body>
+  <main class="container">
+    <a href="index.html" class="back">→ الرئيسية</a>
+
+    <section class="card" id="form-section">
+      <h1>ملف المتدرب</h1>
+      <p class="muted">نحتاج إلى معلومات قليلة فقط. لن نسألك عن مستواك أو مهاراتك، فهذا ما سيقيسه التقييم.</p>
+
+      <form id="profile-form" novalidate>
+        <div class="field">
+          <label for="specialization">التخصص <span class="req">*</span></label>
+          <select id="specialization" required>
+            <option value="">— اختر تخصصك —</option>
+          </select>
+          <input id="custom-specialization" type="text" class="hidden" maxlength="100"
+                 placeholder="اكتب تخصصك">
+          <p class="error" id="specialization-error"></p>
+        </div>
+
+        <fieldset class="field" id="interests-field" disabled>
+          <legend>المجالات التي تهتم بها <span class="req">*</span></legend>
+          <p class="hint" id="interests-hint">اختر التخصص أولًا لعرض المجالات.</p>
+          <div id="interests-list" class="chips"></div>
+          <div class="custom-interest" id="custom-interest-box">
+            <label for="custom-interest-input" class="sub-label">أو أضف مجالًا من عندك</label>
+            <div class="inline-form">
+              <input id="custom-interest-input" type="text" maxlength="60" placeholder="مثال: الحوسبة السحابية">
+              <button type="button" class="btn btn-secondary" id="custom-interest-add">إضافة</button>
+            </div>
+            <div class="chips" id="custom-interest-list"></div>
+          </div>
+          <p class="error" id="interests-error"></p>
+        </fieldset>
+
+        <div class="field">
+          <label for="additional-message">رسالة إضافية <span class="muted">(اختياري)</span></label>
+          <textarea id="additional-message" rows="3" maxlength="500"
+                    placeholder="مثال: أريد تحسين قدرتي على تحليل البيانات وتفسير النتائج"></textarea>
+          <p class="hint"><span id="message-count">0</span> / 500</p>
+        </div>
+
+        <p class="error" id="form-error"></p>
+        <button type="submit" class="btn" id="submit-btn">حفظ الملف</button>
+      </form>
+    </section>
+
+    <section class="card hidden" id="result-section">
+      <h1>تم حفظ ملفك بنجاح</h1>
+      <p>رقم المتدرب: <strong id="r-id" dir="ltr"></strong></p>
+      <dl class="summary">
+        <dt>التخصص</dt><dd id="r-spec"></dd>
+        <dt>المجالات</dt><dd id="r-interests"></dd>
+        <dt>الرسالة</dt><dd id="r-message"></dd>
+        <dt>حالة الملف</dt><dd id="r-status"></dd>
+      </dl>
+      <div class="actions">
+        <button class="btn" id="start-btn" type="button">ابدأ التقييم</button>
+        <a class="btn btn-secondary" href="profile.html">إنشاء ملف جديد</a>
+      </div>
+      <p class="error" id="start-error"></p>
+    </section>
+  </main>
+
+  <script src="js/profile.js?v=3"></script>
+</body>
+</html>
