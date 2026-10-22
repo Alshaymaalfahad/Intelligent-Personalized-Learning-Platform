@@ -10,7 +10,7 @@ from .models import Question
 from .question_generator import generate_validated, render_prompt
 from .schemas import OpenAnswerEvaluationOutput
 
-EMPTY_ANSWER_FEEDBACK = "لم تُقدَّم إجابة."
+EMPTY_ANSWER_FEEDBACK = {"en": "No answer was given.", "ar": "لم تُقدَّم إجابة."}
 
 
 def grade_ordering(q: Question) -> None:
@@ -48,16 +48,16 @@ def _render_item(q: Question) -> str:
     )
 
 
-def grade_open_answers(questions: list[Question], specialization: str) -> None:
+def grade_open_answers(questions: list[Question], specialization: str, lang: str = "en") -> None:
     """Grade all open-ended questions of a section in a single AI call."""
     to_grade = []
     for q in questions:
         if str(q.trainee_answer or "").strip():
             to_grade.append(q)
         else:
-            q.earned_score, q.grading_confidence, q.feedback = 0.0, 1.0, EMPTY_ANSWER_FEEDBACK
+            q.earned_score, q.grading_confidence, q.feedback = 0.0, 1.0, EMPTY_ANSWER_FEEDBACK[lang]
             q.grading_details = [
-                {"criterion": c["criterion"], "points": c["points"], "awarded": 0, "justification": EMPTY_ANSWER_FEEDBACK}
+                {"criterion": c["criterion"], "points": c["points"], "awarded": 0, "justification": EMPTY_ANSWER_FEEDBACK[lang]}
                 for c in q.scoring_rubric
             ]
     if not to_grade:
@@ -78,6 +78,7 @@ def grade_open_answers(questions: list[Question], specialization: str) -> None:
 
     prompt = render_prompt(
         "open_answer_evaluation.txt",
+        lang=lang,
         specialization=specialization,
         items="\n\n".join(_render_item(q) for q in to_grade),
     )

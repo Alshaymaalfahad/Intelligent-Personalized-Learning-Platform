@@ -17,7 +17,7 @@ Scores are percentages over 2 adaptive questions per skill; "status" is a prelim
 
 # Task
 
-Plan the KNOWLEDGE section (قياس المعرفة). It measures understanding of the concepts, principles and reasoning behind the work — the "what" and "why" — separately from the ability to perform. Questions will be written later, one at a time, climbing or descending Bloom's levels (remembering → understanding → applying → analyzing → evaluating → creating) based on each answer. Here you only choose what to measure.
+Plan the KNOWLEDGE section. It measures understanding of the concepts, principles and reasoning behind the work — the "what" and "why" — separately from the ability to perform. Questions will be written later, one at a time, climbing or descending Bloom's levels (remembering → understanding → applying → analyzing → evaluating → creating) based on each answer. Here you only choose what to measure.
 
 Choose 4 or 5 knowledge areas, from two sources:
 1. Foundational knowledge every professional in this specialization needs on client work, regardless of results (at least 2 areas).
@@ -29,9 +29,9 @@ Rules:
 - `competency_id`: "KN-01", "KN-02", … in that order.
 - `importance`: 3 = essential, 2 = important, 1 = useful.
 - `related_skill_ids`: the SK-xx ids this knowledge supports (may be empty for purely foundational areas).
-- `selection_reason`: one Arabic sentence on why this area was chosen for THIS trainee, referring to their skill results when relevant.
-- `adaptation_summary`: 2–3 Arabic sentences explaining how the skill results shaped this section (shown in the final report only).
+- `selection_reason`: one sentence on why this area was chosen for THIS trainee, referring to their skill results when relevant.
+- `adaptation_summary`: 2–3 sentences explaining how the skill results shaped this section (shown in the final report only).
 
-Write names and descriptions in clear Modern Standard Arabic, keeping established technical terms in English.
+{{language_rule}}
 
 Return only the JSON object required by the schema.

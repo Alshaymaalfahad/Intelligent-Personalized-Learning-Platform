@@ -212,7 +212,7 @@ def test_followup_prompt_contains_previous_evidence(c, ai):
     follow_up = ai.tasks("skill_question")[1]
     assert '"result": "incorrect"' in follow_up
     assert '"trainee_chose"' in follow_up or '"trainee_order"' in follow_up
-    assert "أخطأ المتدرب" in follow_up  # adaptation reason
+    assert "got the previous question on this skill wrong" in follow_up  # adaptation reason (English, for the AI)
 
 
 def test_next_question_failure_keeps_graded_answer_and_can_retry(c, ai):
@@ -356,3 +356,13 @@ def test_knowledge_selector_covers_types_areas_and_bloom(area_count):
         assert sum(q.question_type == "open_ended" for q in qs) <= sel.MAX_KNOWLEDGE_OPEN_ENDED
         assert all(sum(q.competency_id == a["competency_id"] for q in qs) >= 2 for a in areas)
         assert all(q.question_type in sel.KNOWLEDGE_TYPES_BY_LEVEL[q.bloom_level] for q in qs)
+
+
+def test_content_language_follows_the_trainee(c, ai):
+    for lang, rule, tf in (("en", "clear, natural professional English", '["True", "False"]'), ("ar", "Modern Standard Arabic", '["صح", "خطأ"]')):
+        ai.calls.clear()
+        trainee_id = c.post("/api/trainees", json={**PROFILE, "language": lang}).json()["trainee_id"]
+        aid = c.post("/api/assessments", json={"trainee_id": trainee_id}).json()["assessment_id"]
+        c.post(f"/api/assessments/{aid}/skill/start")
+        plan, question = ai.tasks("skill_plan")[0], ai.tasks("skill_question")[0]
+        assert rule in plan and rule in question and tf in question

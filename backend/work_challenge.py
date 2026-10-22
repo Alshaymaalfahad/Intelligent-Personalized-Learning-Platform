@@ -14,6 +14,7 @@ import json
 from .activity_schemas import WorkFirstOutput, WorkNextOutput, WorkReview
 from .assessment_engine import EngineError
 from .config import AI_FAST_EFFORT
+from .i18n import lang_of
 from .question_generator import generate_validated, render_prompt
 
 TOTAL_LEVELS = 3
@@ -21,8 +22,8 @@ PROMPT = "work_task.txt"
 FIRST_OUTPUT = WorkFirstOutput
 NEXT_OUTPUT = WorkNextOutput
 MISSION_FIELDS = (
-    "`title`, `story` (2–3 short Arabic sentences), `goal`, `win_condition` (e.g. «سلّم مخرجًا يرضي العميل»), "
-    "and `job_title` (the trainee's Arabic job title in this specialization, e.g. «محلل نظم» or «مطور برمجيات»)."
+    "`title`, `story` (2–3 short sentences), `goal`, `win_condition` (e.g. \"deliver something the client is happy with\"), "
+    "and `job_title` (the trainee's job title in this specialization, e.g. \"Systems Analyst\" or \"Software Developer\")."
 )
 POINTS_PER_CRITERION_POINT = 10
 STATUS_WEIGHT = {"met": 1.0, "partial": 0.5, "missing": 0.0}
@@ -75,6 +76,7 @@ def _review(activity, level: dict, text: str) -> WorkReview:
     criteria = c["criteria"]
     prompt = render_prompt(
         "work_review.txt",
+        lang=lang_of(activity.assessment.trainee),
         specialization=activity.assessment.trainee.specialization,
         sender=f"{c['sender_name']} — {c['sender_role']}",
         task=json.dumps({k: c[k] for k in ("subject", "message", "input_title", "input_lines", "deliverable_instructions")}, ensure_ascii=False, indent=2),
@@ -165,8 +167,3 @@ def notes(level: dict) -> dict:
 
 def extra_badges(activity, level: dict) -> list[str]:
     return ["client_star"] if any(x["stars"] == 5 for x in level["state"]["submissions"]) else []
-
-
-def rank_names(activity) -> tuple[str, str, str]:
-    job = (activity.mission or {}).get("job_title") or "موظف"
-    return "متدرب", job, f"{job} أول"

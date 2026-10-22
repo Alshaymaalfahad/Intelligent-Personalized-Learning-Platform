@@ -10,7 +10,6 @@ Each activity module provides:
     act(db, activity, level, action, payload) -> dict     mutates level; returns outcome with "xp_change"
     reveal(level)                                         on finishing a level early
     notes(level) -> dict                                  short summary for the next level's prompt
-    rank_names(activity) -> [beginner, mid, expert]
     extra_badges(activity, level) -> list[str]
 
 The core handles levels, XP (never below zero), hint coins, difficulty adaptation,
@@ -25,9 +24,10 @@ from sqlalchemy.orm import Session
 
 from .assessment_engine import EngineError
 from .behavior import activity_behavior, record_event
+from .i18n import lang_of
 from .learning_activities import activity_card
 from .learning_engine import check_available, gap_context, journey_step, record_result
-from .models import Assessment, LearningActivity, utcnow
+from .models import Assessment, LearningActivity, public_id, utcnow
 from .question_generator import generate_validated, render_prompt
 
 MODULES = {
@@ -38,16 +38,10 @@ MODULES = {
 }
 HINT_COST = 5
 
-BADGES = {
-    "independent": ("🧭", "مستقل", "أنهيت مرحلة بنتيجة 80% أو أكثر دون أي تلميح."),
-    "boss_slayer": ("👑", "قاهر الزعيم", "حققت 90% أو أكثر في مرحلة الزعيم."),
-    "ready": ("🏅", "جاهز للتحقق", "اجتزت مرحلة الزعيم؛ تُثبت إعادة القياس إغلاق الفجوة."),
-    "escape_artist": ("🗝️", "هارب محترف", "فتحت كل الأبواب من المحاولة الأولى."),
-    "client_star": ("⭐", "رضا العميل", "حصلت على 5 نجوم من المراجعة."),
-    "expert_shadow": ("🥷", "ظل الخبير", "طابقت خطوات الخبير بنسبة 90% أو أكثر."),
-    "golden_collector": ("🃏", "جامع الممارسات", "جمعت كل بطاقات الممارسات الذهبية في مرحلة."),
-    "inspiring_teacher": ("🎓", "معلّم ملهم", "نجح سعود في اختباره بالعلامة الكاملة."),
-}
+BADGE_ICONS = {
+    "independent": "🧭", "boss_slayer": "👑", "ready": "🏅", "escape_artist": "🗝️", "client_star": "⭐",
+    "expert_shadow": "🥷", "golden_collector": "🃏", "inspiring_teacher": "🎓",
+}  # names and descriptions are translated by the frontend
 
 
 def module(activity_type: str):
@@ -92,6 +86,7 @@ def _generate(assessment: Assessment, activity: LearningActivity, number: int, d
     previous = [{**_summary(lv), **mod.notes(lv)} for lv in activity.levels]
     prompt = render_prompt(
         mod.PROMPT,
+        lang=lang_of(assessment.trainee),
         specialization=assessment.trainee.specialization,
         competency=json.dumps(ctx["competency"], ensure_ascii=False),
         gap_evidence=json.dumps(ctx["evidence"], ensure_ascii=False, indent=2) if ctx["evidence"] else "(no wrong answers recorded — evidence was limited)",
@@ -169,7 +164,7 @@ def start(db: Session, assessment: Assessment, competency_id: str, activity_type
     )
     db.add(activity)
     db.flush()
-    activity.activity_id = f"LA-{activity.id:04d}"
+    activity.activity_id = public_id("LA")
     db.commit()
     try:
         mission, level = _generate(assessment, activity, 1, difficulty)
@@ -280,8 +275,7 @@ def finish_level(db: Session, assessment: Assessment, activity: LearningActivity
         _award(activity, "ready")
     total_max = sum(lv["max_xp"] for lv in levels)
     percent = 100 * activity.xp / total_max if total_max else 0
-    beginner, mid, expert = mod.rank_names(activity)
-    outcome["rank"] = expert if percent >= 80 else mid if percent >= 50 else beginner
+    outcome["rank"] = "expert" if percent >= 80 else "mid" if percent >= 50 else "beginner"  # translated per activity
     outcome["xp"] = activity.xp
     outcome["max_xp"] = total_max
     activity.result = outcome
@@ -321,7 +315,7 @@ def view(activity: LearningActivity) -> dict:
         "xp": activity.xp,
         "hints_used": activity.hints_used,
         "rules": {"hint": HINT_COST, **getattr(mod, "RULES", {})},
-        "badges": [{"id": b, "icon": BADGES[b][0], "name": BADGES[b][1], "description": BADGES[b][2]} for b in activity.badges],
+        "badges": [{"id": b, "icon": BADGE_ICONS[b]} for b in activity.badges],
         "levels": levels,
         "result": activity.result,
     }

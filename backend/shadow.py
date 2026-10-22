@@ -14,6 +14,7 @@ Level 3 — boss: reverse shadow on a new situation, no hints.
 import random
 
 from .activity_schemas import ShadowFirstOutput, ShadowNextOutput
+from .i18n import strip_enumerator
 from .assessment_engine import EngineError
 
 TOTAL_LEVELS = 3
@@ -21,8 +22,8 @@ PROMPT = "shadow_level.txt"
 FIRST_OUTPUT = ShadowFirstOutput
 NEXT_OUTPUT = ShadowNextOutput
 MISSION_FIELDS = (
-    "`title`, `story` (2–3 short Arabic sentences introducing the expert and the situation), `goal`, `win_condition`, "
-    "and `expert_name` (Arabic name and role, e.g. «م. خالد — مهندس برمجيات أول»)."
+    "`title`, `story` (2–3 short sentences introducing the expert and the situation), `goal`, `win_condition`, "
+    "and `expert_name` (name and role, e.g. \"Khalid — Senior Software Engineer\")."
 )
 RULES = {"predict": 10, "match": 40}
 PREDICT_POINTS = 10
@@ -66,15 +67,15 @@ def validate(lv, number: int, is_boss: bool) -> list[str]:
 
 def build_level(lv, number: int, is_boss: bool) -> dict:
     mode = mode_of(number)
-    steps = [{"step": s.step.strip(), "why": s.why.strip(), "golden": s.golden_practice.strip()} for s in lv.expert_steps]
+    steps = [{"step": strip_enumerator(s.step), "why": s.why.strip(), "golden": s.golden_practice.strip()} for s in lv.expert_steps]
     pauses = []
     for x in sorted(lv.pauses, key=lambda x: x.step_index) if mode == "watch" else []:
-        options = [steps[x.step_index]["step"]] + [d.strip() for d in x.distractors]
+        options = [steps[x.step_index]["step"]] + [strip_enumerator(d) for d in x.distractors]
         order = list(range(3))
         random.shuffle(order)
         pauses.append({"step_index": x.step_index, "options": [options[i] for i in order], "correct": order.index(0), "hint": x.hint.strip()})
     pool = [{"text": s["step"], "expert_index": i} for i, s in enumerate(steps)] + [
-        {"text": d.strip(), "expert_index": None} for d in lv.distractor_steps
+        {"text": strip_enumerator(d), "expert_index": None} for d in lv.distractor_steps
     ]
     random.shuffle(pool)
     return {
@@ -245,7 +246,3 @@ def extra_badges(activity, level: dict) -> list[str]:
     if c["mode"] == "do" and (s["match"] or 0) >= 90:
         return ["expert_shadow"]
     return []
-
-
-def rank_names(activity) -> tuple[str, str, str]:
-    return "ظل مبتدئ", "ظل محترف", "ظل الخبير"

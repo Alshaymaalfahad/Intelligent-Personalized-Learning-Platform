@@ -20,8 +20,8 @@ PROMPT = "escape_door.txt"
 FIRST_OUTPUT = EscapeFirstOutput
 NEXT_OUTPUT = EscapeNextOutput
 MISSION_FIELDS = (
-    "`title` (short and catchy), `story` (2–3 short Arabic sentences: e.g. «الساعة 9 صباحًا. تقرير لازم يوصل للعميل، "
-    "لكن النظام مقفل وفيه مشاكل. عندك 4 أبواب، وكل باب يُفتح برمز.»), `goal` (one sentence), and `win_condition` (one sentence)."
+    "`title` (short and catchy), `story` (2–3 short sentences, e.g. \"9 a.m. A report must reach the client, but the "
+    "system is locked and full of problems. You have 4 doors, each opened by a code.\"), `goal` (one sentence), and `win_condition` (one sentence)."
 )
 RULES = {"answer": 20, "justify": 10}
 ANSWER_POINTS, RETRY_COST, MIN_ANSWER_POINTS, JUSTIFY_POINTS = 20, 5, 5, 10
@@ -204,7 +204,3 @@ def extra_badges(activity, level: dict) -> list[str]:
     if all(d["state"]["solved"] and d["state"]["attempts"] == 1 and d["state"]["justification_ok"] for d in doors):
         return ["escape_artist"]
     return []
-
-
-def rank_names(activity) -> tuple[str, str, str]:
-    return "هارب مبتدئ", "هارب محترف", "سيد الهروب"

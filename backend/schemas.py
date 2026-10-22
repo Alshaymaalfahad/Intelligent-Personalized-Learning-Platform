@@ -15,6 +15,7 @@ class TraineeCreate(BaseModel):
     # extra="forbid": the profile must not accept self-reported skills/levels.
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
+    language: Literal["en", "ar"] = "en"
     specialization: str = Field(min_length=2, max_length=100)
     interests: list[str] = Field(min_length=1, max_length=MAX_INTERESTS)
     additional_message: str | None = Field(default=None, max_length=MAX_MESSAGE_LENGTH)
@@ -67,6 +68,7 @@ class TraineeOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     trainee_id: str
+    language: str | None
     specialization: str
     interests: list[str]
     additional_message: str | None
@@ -273,3 +275,24 @@ class LessonAnswer(BaseModel):
 
     choice: int = Field(ge=0, le=10)
     index: int = Field(default=0, ge=0, le=5)
+
+
+class JourneySelection(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    skill_id: str = Field(min_length=2, max_length=10)
+    level: Literal["new", "some", "deep"] | None = None
+    later: bool = False
+
+
+class JourneyUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    selections: list[JourneySelection] = Field(min_length=1, max_length=60)
+
+
+class JourneyCreate(JourneyUpdate):
+    trainee_id: str = Field(min_length=1, max_length=40)
+    # True: sign up with this new ID. False: a returning trainee starting their next round.
+    new_trainee: bool = False
+    language: Literal["en", "ar"] = "en"

@@ -21,6 +21,7 @@ from pydantic import BaseModel
 
 from .adaptive_selector import QUESTIONS_PER_SECTION, Target, passed
 from .ai_client import AIOutputInvalid, generate_structured
+from .i18n import LANGUAGE_RULES, TRUE_FALSE_OPTIONS as TF_OPTIONS, lang_of, strip_enumerator
 from .schemas import KnowledgePlanOutput, QuestionDraft, SkillPlanOutput
 
 log = logging.getLogger("question_generator")
@@ -30,7 +31,6 @@ PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 SKILL_KINDS = {"hard": 3, "soft": 2}
 SKILL_COUNT = sum(SKILL_KINDS.values())
 KNOWLEDGE_AREA_RANGE = (4, 5)
-TRUE_FALSE_OPTIONS = ["صح", "خطأ"]
 CHOICE_OPTION_COUNT = 4
 ORDERING_STEPS = (4, 5)
 # Keep questions quick to read and answer (~1 minute).
@@ -50,7 +50,10 @@ T = TypeVar("T", bound=BaseModel)
 # Prompt rendering
 # ---------------------------------------------------------------------------
 
-def render_prompt(template_name: str, **values: str) -> str:
+def render_prompt(template_name: str, *, lang: str = "en", **values: str) -> str:
+    """Fill {{placeholders}}; `lang` sets the output-language rule and True/False wording."""
+    values.setdefault("language_rule", LANGUAGE_RULES[lang])
+    values.setdefault("tf_options", json.dumps(TF_OPTIONS[lang], ensure_ascii=False))
     text = (PROMPTS_DIR / template_name).read_text(encoding="utf-8")
     for key, value in values.items():
         text = text.replace("{{" + key + "}}", str(value))
@@ -151,7 +154,7 @@ def validate_knowledge_plan(out: KnowledgePlanOutput, skill_ids: set[str]) -> li
 
 
 def plan_skills(trainee) -> SkillPlanOutput:
-    prompt = render_prompt("skill_plan.txt", **_trainee_values(trainee))
+    prompt = render_prompt("skill_plan.txt", lang=lang_of(trainee), **_trainee_values(trainee))
     return generate_validated(prompt, SkillPlanOutput, validate_skill_plan, task="skill_plan")
 
 
@@ -172,7 +175,7 @@ def plan_knowledge(trainee, skill_blueprint: list[dict], skill_results: list[dic
         }
         for s in skill_blueprint
     ]
-    prompt = render_prompt("knowledge_plan.txt", **_trainee_values(trainee), skill_results=_json(summary))
+    prompt = render_prompt("knowledge_plan.txt", lang=lang_of(trainee), **_trainee_values(trainee), skill_results=_json(summary))
     skill_ids = {s["competency_id"] for s in skill_blueprint}
     return generate_validated(
         prompt, KnowledgePlanOutput, lambda out: validate_knowledge_plan(out, skill_ids), task="knowledge_plan"
@@ -237,7 +240,7 @@ def validate_question(q: QuestionDraft, target: Target, previous_texts: list[str
     return problems
 
 
-def normalize_question(q: QuestionDraft, target: Target, correct_index: int) -> dict:
+def normalize_question(q: QuestionDraft, target: Target, correct_index: int, lang: str = "en") -> dict:
     """Clean a validated draft into the fields stored on models.Question.
 
     For 4-option questions the correct option is moved to `correct_index`, so the
@@ -250,7 +253,7 @@ def normalize_question(q: QuestionDraft, target: Target, correct_index: int) -> 
     if is_open:
         options, correct = [], None
     elif q.question_type == "ordering":
-        steps = [o.strip() for o in q.options]
+        steps = [strip_enumerator(o) for o in q.options]
         display = list(range(len(steps)))
         while display == sorted(display):
             random.shuffle(display)
@@ -258,7 +261,7 @@ def normalize_question(q: QuestionDraft, target: Target, correct_index: int) -> 
         correct_order = [display.index(i) for i in range(len(steps))]
         correct = None
     elif q.question_type == "true_false":
-        options, correct = list(TRUE_FALSE_OPTIONS), q.correct_option_index
+        options, correct = list(TF_OPTIONS[lang]), q.correct_option_index
     else:
         options = [o.strip() for o in q.options]
         correct = correct_index
@@ -279,6 +282,7 @@ def normalize_question(q: QuestionDraft, target: Target, correct_index: int) -> 
         "max_score": float(sum(c["points"] for c in rubric)) if is_open else 1.0,
         "rationale": q.rationale.strip(),
         "adaptation_reason": target.reason,
+        "adaptation_code": target.reason_code,
     }
 
 
@@ -347,15 +351,15 @@ def write_question(
         "history": _json([t[:300] for t in previous_texts]) if previous_texts else "(none)",
         "reassessment_context": reassessment_context or "(not a reassessment)",
         "correct_index_hint": correct_index,
-        "tf_hint": TRUE_FALSE_OPTIONS[tf_correct],
+        "tf_hint": TF_OPTIONS[lang_of(trainee)][tf_correct],
     }
     info = {"name": competency["name"], "description": competency["description"]}
     if phase == "skill":
-        prompt = render_prompt("skill_question.txt", **values, skill=_json(info))
+        prompt = render_prompt("skill_question.txt", lang=lang_of(trainee), **values, skill=_json(info))
     else:
-        prompt = render_prompt("knowledge_question.txt", **values, area=_json(info))
+        prompt = render_prompt("knowledge_question.txt", lang=lang_of(trainee), **values, area=_json(info))
 
     draft = generate_validated(
         prompt, QuestionDraft, lambda q: validate_question(q, target, previous_texts), task=f"{phase}_question_{position}"
     )
-    return normalize_question(draft, target, correct_index)
+    return normalize_question(draft, target, correct_index, lang_of(trainee))

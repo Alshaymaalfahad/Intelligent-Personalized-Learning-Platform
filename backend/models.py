@@ -1,11 +1,17 @@
 """Database tables."""
 
+import secrets
 from datetime import datetime, timezone
 
 from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
+
+
+def public_id(prefix: str) -> str:
+    """Random, unguessable id for links (journeys, activities, lessons)."""
+    return f"{prefix}-{secrets.token_hex(5).upper()}"
 
 
 def utcnow() -> datetime:
@@ -21,6 +27,8 @@ class Trainee(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     # Public ID such as "TR-0001", derived from `id` after insert.
     trainee_id: Mapped[str | None] = mapped_column(String(20), unique=True, index=True)
+    # Language of AI-generated content for this trainee (en | ar); chosen at sign-up.
+    language: Mapped[str | None] = mapped_column(String(5), nullable=True, default="en")
     specialization: Mapped[str] = mapped_column(String(100))
     interests: Mapped[list[str]] = mapped_column(JSON)
     additional_message: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -39,7 +47,8 @@ class Assessment(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     assessment_id: Mapped[str | None] = mapped_column(String(20), unique=True, index=True)
     trainee_pk: Mapped[int] = mapped_column(ForeignKey("trainees.id"))
-    # "initial" assessment, or a "reassessment" after the learning journey of `parent_pk`.
+    # "initial" assessment, a "reassessment" after the learning journey of `parent_pk`,
+    # or a "journey" built from the skills the trainee picked (no questions; see journey.py).
     kind: Mapped[str | None] = mapped_column(String(20), nullable=True, default="initial")
     parent_pk: Mapped[int | None] = mapped_column(ForeignKey("assessments.id"), nullable=True)
     # Reassessment only: per-competency training history and behavior signals that steer the questions.
@@ -57,6 +66,8 @@ class Assessment(Base):
     report: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     # Learning journey progress per competency: {"SK-03": {"baseline": 40, "current": 78, "status": "closed", …}}
     learning_progress: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # Journey only: the picked skills, e.g. [{"skill_id": "L5-1", "level": "new", "later": false}]
+    selections: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
@@ -104,6 +115,8 @@ class Question(Base):
     rationale: Mapped[str] = mapped_column(Text)
     # Why the adaptive selector chose this target (Arabic) — shown only in the review.
     adaptation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The same reason as a code + params, translated by the frontend.
+    adaptation_code: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     # Trainee answer: option index (int), free text (str), or an order (list of option indices).
     trainee_answer: Mapped[int | str | list | None] = mapped_column(JSON, nullable=True)

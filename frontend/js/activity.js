@@ -1,61 +1,96 @@
-/* Activity page core: the briefing (lesson) → mission card → levels → summary → result.
-   The level body is drawn by the activity's renderer (activity-*.js). */
-
+/* Activity page: briefing (why → learn → together → quick check) → mission → levels → final
+   challenge → result. Each activity's level body is drawn by its renderer (activity-*.js). */
 (() => {
-  const { el, button, api, artifact } = ActivityKit;
+  const { el, button, svg, nudge, activityIcon, api, store, shell, bar, chip, artifact, loadingView, t } = App;
+  shell("journey");
+
   const params = new URLSearchParams(location.search);
   let activityId = params.get("id");
   let assessmentId = params.get("assessment");
   let competencyId = params.get("competency");
   let activityType = params.get("type");
-  const $ = (id) => document.getElementById(id);
-  const VIEWS = ["loading", "error", "lesson", "intro", "level", "summary", "result"];
+  const page = document.getElementById("page");
 
-  let act = null;
-  let step = null; // journey step (activity cards) from the report
-  let lessonInfo = null; // GET lessons/{competency}
+  let act = null; // activity view from the server
+  let report = null;
+  let step = null; // journey step of this gap
+  let lessonInfo = null;
   let lesson = null;
-  let levelState = {}; // renderer UI state per level number
-  let retryAction = null;
+  let levelState = {};
   let showMissionFirst = false;
+  let mentorText = null;
 
-  /* ---------- Helpers ---------- */
+  const STATIONS = ["why", "learn", "together", "check", "play", "boss"];
+  const BADGES_BY_TYPE = {
+    gap_hunter: ["hawk_eye", "zero_false_alarms", "boss_slayer", "ready"],
+    escape_room: ["escape_artist", "independent", "boss_slayer", "ready"],
+    work_challenge: ["client_star", "independent", "boss_slayer", "ready"],
+    shadow: ["golden_collector", "expert_shadow", "boss_slayer", "ready"],
+    teach_others: ["inspiring_teacher", "independent", "boss_slayer", "ready"],
+  };
+  const BADGE_ICONS = { hawk_eye: "🦅", zero_false_alarms: "🎯", boss_slayer: "👑", ready: "🏅", escape_artist: "🗝️", independent: "🧭", client_star: "⭐", golden_collector: "🃏", expert_shadow: "🥷", inspiring_teacher: "🎓" };
+  const STYLE_ICONS = { story: "book", visual: "image", interactive: "bolt", brief: "file" };
 
-  function show(name) {
-    for (const v of VIEWS) $(`view-${v}`).classList.toggle("hidden", v !== name);
+  const actName = () => t(`activity.${activityType}.name`);
+  const activityUrl = (type) => `activity.html?${new URLSearchParams({ assessment: assessmentId, competency: competencyId, type })}`;
+
+  /* ---------- Layout ---------- */
+
+  function stepper(current) {
+    const idx = STATIONS.indexOf(current);
+    const items = [];
+    STATIONS.forEach((s, i) => {
+      if (i) items.push(el("span", { className: `step-line ${i <= idx ? "done" : ""}` }));
+      const state = i < idx ? "done" : i === idx ? "active" : "";
+      items.push(el("span", { className: `step ${state}` }, el("span", { className: "dot" }, i < idx ? svg("check", 14) : el("span", { text: String(i + 1) })), el("span", { text: t(`station.${s}`) })));
+    });
+    return el("nav", { className: "stepper", attrs: { "aria-label": t("station.aria") } }, ...items);
+  }
+
+  function sidePanels() {
+    const prog = (report && report.learning_progress && report.learning_progress[competencyId]) || null;
+    // Only a measured score is shown: before the first final challenge there is nothing to show yet.
+    const current = prog ? prog.current : step && !step.self_rated ? step.baseline_score : null;
+    const earned = new Set((act && act.badges.map((b) => b.id)) || []);
+    const coach = el("div", { className: "card side-panel" },
+      el("div", { className: "nudge-say" }, nudge(48), el("div", {}, el("strong", { text: t("act.coach") }), el("div", { className: "hint", text: t("act.coach_role") }))),
+      el("p", { className: "card soft", text: mentorText || t("act.coach_default") }));
+    const progressCard = el("div", { className: "card side-panel" }, el("h3", {}, el("span", { text: t("act.your_progress") }), svg("chart", 18)),
+      el("div", { className: "bar-row" }, el("span", { text: t("act.gap_mastery") }), el("strong", { text: current === null ? "—" : `${Math.round(current)}%` })),
+      bar(current || 0, report ? report.target_score : 70),
+      current === null ? el("p", { className: "hint", text: t("act.not_measured") }) : null,
+      el("div", { className: "mini-stats" },
+        el("div", {}, el("small", { text: "XP" }), el("strong", { text: String(act ? act.xp : 0) })),
+        el("div", {}, el("small", { text: t("act.hints_used") }), el("strong", { text: String(act ? act.hints_used : 0) }))));
+    const badges = el("div", { className: "card side-panel" }, el("h3", {}, el("span", { text: t("nav.badges") }), chip(t("act.unlocked", { n: earned.size }), "cyan")),
+      ...BADGES_BY_TYPE[activityType].map((b) => el("div", { className: `badge-line ${earned.has(b) ? "earned" : "locked"}` },
+        el("span", { className: "ico", text: BADGE_ICONS[b] }),
+        el("div", {}, el("strong", { text: t(`badge.${b}.name`) }), el("span", { className: "hint", text: t(`badge.${b}.desc`) })))));
+    const others = step ? [step.activity, ...step.alternatives].filter((a) => a.activity_type !== activityType) : [];
+    const alt = el("div", { className: "card side-panel" }, el("h3", {}, el("span", { text: t("act.try_another") }), svg("compass", 18)),
+      el("p", { className: "hint", text: t("act.try_another_sub") }),
+      el("div", { className: "alt-grid" }, ...others.map((a) => el("a", { href: activityUrl(a.activity_type) }, activityIcon(a.activity_type, 20), el("span", { text: t(`activity.${a.activity_type}.name`) })))));
+    return el("aside", {}, coach, progressCard, badges, alt);
+  }
+
+  function render(station, ...main) {
+    page.replaceChildren(stepper(station), el("div", { className: "split" }, el("div", {}, ...main), sidePanels()));
     window.scrollTo({ top: 0 });
   }
 
-  function stations(current, done = []) {
-    for (const li of $("stations").children) {
-      li.classList.toggle("active", li.dataset.station === current);
-      li.classList.toggle("done", done.includes(li.dataset.station));
-    }
+  function loading(text, hint) {
+    page.replaceChildren(loadingView(text, hint));
   }
 
-  function loading(text, hint = "") {
-    $("loading-text").textContent = text;
-    $("loading-hint").textContent = hint;
-    show("loading");
+  function fail(message, retry) {
+    page.replaceChildren(el("div", { className: "card" }, el("h2", { text: t("error.title") }), el("p", { text: message }),
+      retry ? el("div", { className: "actions" }, button(t("error.retry"), "", retry)) : null));
   }
-
-  function fail(message, action) {
-    $("error-text").textContent = message;
-    retryAction = action || null;
-    $("retry-btn").classList.toggle("hidden", !action);
-    show("error");
-  }
-
-  function setBackLink() {
-    if (assessmentId) $("back-link").href = `report.html?id=${encodeURIComponent(assessmentId)}#journey`;
-  }
-
-  const LESSON_DONE = ["why", "explain", "together", "check"];
-  const card = () => (act && act.activity) || [step.activity, ...step.alternatives].find((a) => a.activity_type === activityType);
 
   /* ---------- Entry ---------- */
 
   async function init() {
+    loading(t("act.loading"));
     try {
       if (activityId) {
         act = await api("GET", `/api/activities/${encodeURIComponent(activityId)}`);
@@ -63,65 +98,58 @@
         competencyId = act.competency_id;
         activityType = act.activity.activity_type;
       }
-      if (!assessmentId || !competencyId || !activityType) return fail("الرابط غير مكتمل.");
-      setBackLink();
-      const report = await api("GET", `/api/assessments/${encodeURIComponent(assessmentId)}/report`);
+      if (!assessmentId || !competencyId || !activityType) return fail(t("act.bad_link"));
+      store.set("assessment_id", assessmentId);
+      if (assessmentId.toUpperCase().startsWith("JR-")) store.set("journey_id", assessmentId.toUpperCase());
+      report = await api("GET", `/api/assessments/${encodeURIComponent(assessmentId)}/report`);
+      store.set("trainee_id", report.trainee_id);
       step = (report.learning_journey || []).find((s) => s.competency_id === competencyId);
-      if (!step) return fail("هذه الكفاءة ليست ضمن رحلتك التعليمية.");
+      if (!step) return fail(t("act.not_in_journey"));
       lessonInfo = await api("GET", `/api/assessments/${encodeURIComponent(assessmentId)}/lessons/${encodeURIComponent(competencyId)}`);
       lesson = lessonInfo.lesson;
     } catch (e) {
       return fail(e.message, init);
     }
-    if (act) return render();
+    document.title = actName();
+    if (act) return drive();
     if (lesson && lesson.completed) return showActivityIntro();
     if (lesson) return showLesson("why");
     showLessonStart();
   }
 
-  /* ---------- 📖 Briefing (lesson) ---------- */
+  /* ---------- Briefing ---------- */
 
-  function lessonShell(station, ...children) {
-    stations(station, LESSON_DONE.slice(0, LESSON_DONE.indexOf(station)));
-    const c = card();
-    $("view-lesson").replaceChildren(
-      el("div", { className: "card" },
-        el("p", { className: "muted small", text: `${c.icon} إحاطة قبل مهمة «${c.name}» · الفجوة: ${step.name}` }),
-        ...children),
-    );
-    show("lesson");
+  function lessonCard(...children) {
+    return el("div", { className: "card" }, el("span", { className: "eyebrow", text: t("lesson.briefing_for", { activity: actName(), gap: step.name }) }), ...children);
   }
 
-  function next(label, onClick) {
-    return el("div", { className: "actions" }, button(label, "", onClick));
+  function nextButton(label, onClick) {
+    return el("div", { className: "actions end" }, button(label, "btn-big", onClick, "arrow"));
   }
 
   function showLessonStart() {
-    stations("why");
     const info = lessonInfo;
     const styles = el("div", { className: "solutions" }, ...info.styles.map((s) =>
-      button(s.label + (s.id === info.suggested_style ? " ⭐ الأنسب لك" : ""), s.id === info.suggested_style ? "" : "btn-secondary", () => createLesson(s.id))));
-    const c = card();
-    $("view-lesson").replaceChildren(el("div", { className: "card" },
-      el("div", { className: "activity-hero" }, el("span", { className: "activity-icon", text: "🧭" }),
-        el("div", {}, el("p", { className: "muted", text: `الفجوة: ${step.name}` }), el("h1", { text: "إحاطة قبل المغامرة" }))),
-      el("p", { text: `قبل مهمة «${c.icon} ${c.name}» نجهّزك: نشرح لك، ثم نحل مثالًا سوا، ثم تبدأ أنت.` }),
-      el("div", { className: "mission" }, el("strong", { text: `نوع فجوتك: ${info.depth_label}` }), el("p", { text: info.depth_description })),
-      el("h3", { text: "كيف تحب نشرح لك؟" }),
-      el("p", { className: "hint", text: info.suggested_style ? "⭐ اقترحنا الأسلوب الذي نجح معك أكثر في الفجوات السابقة." : "اختر الأسلوب الأقرب لك؛ سنتذكر أي أسلوب ينجح معك." }),
+      button(`${t(`lesson.style.${s}`)}${s === info.suggested_style ? ` · ${t("lesson.best_for_you")}` : ""}`, s === info.suggested_style ? "" : "btn-secondary", () => createLesson(s), STYLE_ICONS[s])));
+    render("why", el("div", { className: "mission-banner" }, el("span", { className: "chip-tag solid", text: t("lesson.before_adventure") }),
+      el("h2", { text: t("lesson.start_title", { gap: step.name }) }), el("p", { text: t("lesson.start_sub", { activity: actName() }) })),
+    el("div", { className: "card" },
+      el("div", { className: "head-row" }, el("h3", { text: t("lesson.gap_type", { type: t(`depth.${info.depth}.label`) }) }), chip(t(`depth.${info.depth}.label`), "cyan")),
+      el("p", { className: "muted", text: t(`depth.${info.depth}.desc`) }),
+      el("h3", { text: t("lesson.how_explain") }),
+      el("p", { className: "hint", text: info.suggested_style ? t("lesson.suggested_note") : t("lesson.pick_note") }),
       styles,
-      info.can_skip ? el("div", { className: "actions" }, button("تخطَّ الشرح وابدأ التحدي مباشرة", "btn-secondary", showActivityIntro)) : null));
-    show("lesson");
+      info.can_skip ? el("div", { className: "actions" }, button(t("lesson.skip"), "btn-secondary", showActivityIntro)) : null));
   }
 
   async function createLesson(style) {
-    loading("المرشد يجهّز إحاطتك…", "شرح مخصص لفجوتك، قد يستغرق حتى دقيقة.");
+    loading(t("lesson.preparing"), t("lesson.preparing_hint"));
     try {
       lesson = await api("POST", `/api/assessments/${encodeURIComponent(assessmentId)}/lessons/${encodeURIComponent(competencyId)}`, { style });
     } catch (e) {
       return fail(e.message, () => createLesson(style));
     }
-    showLesson("why");
+    showLesson("learn");
   }
 
   function explanationBlocks(l, interactive = true) {
@@ -133,7 +161,10 @@
     if (l.style === "interactive" && interactive) {
       return el("div", {}, ...sections.map((s) => {
         const answer = el("div", { className: "hidden" }, el("p", { text: s.body }));
-        const reveal = button("👀 اكشف", "btn-small btn-secondary", () => { answer.classList.remove("hidden"); reveal.remove(); });
+        const reveal = button(t("lesson.reveal"), "btn-small btn-secondary", () => {
+          answer.classList.remove("hidden");
+          reveal.remove();
+        });
         return el("div", { className: "lesson-section" }, el("h3", { text: s.heading }), el("p", { className: "sub-title", text: `🤔 ${s.reveal_question}` }), reveal, answer);
       }));
     }
@@ -141,34 +172,45 @@
       el("div", { className: "lesson-section" }, el("h3", { text: l.style === "story" || !s.emoji ? s.heading : `${s.emoji} ${s.heading}` }), el("p", { text: s.body }))));
   }
 
-  function takeaways(l) {
-    return el("div", { className: "takeaways" }, el("strong", { text: "📌 تذكّر" }), el("ul", {}, ...l.explanation.takeaways.map((t) => el("li", { text: t }))));
+  function keyIdeas(l) {
+    return el("div", {}, el("h3", {}, svg("bulb", 20), el("span", { text: ` ${t("lesson.key_ideas")}` })),
+      el("div", { className: "key-ideas" }, ...l.explanation.takeaways.map((k) => el("div", { className: "key-idea" }, el("div", { className: "ico" }, svg("check", 20)), el("p", { text: k })))));
+  }
+
+  function styleTabs(l) {
+    return el("div", { className: "style-tabs", attrs: { role: "group", "aria-label": t("lesson.how_explain") } }, ...lessonInfo.styles.map((s) => {
+      const b = button(t(`lesson.style.${s}`), `btn-small ${s === l.style ? "" : "btn-secondary"}`, () => {
+        if (s !== l.style && confirm(t("lesson.switch_confirm"))) createLesson(s);
+      }, STYLE_ICONS[s]);
+      b.setAttribute("aria-pressed", String(s === l.style));
+      return b;
+    }));
   }
 
   function showLesson(station) {
     const l = lesson;
     if (station === "why") {
-      return lessonShell("why",
-        el("h1", { text: `🎬 ${l.why.title}` }),
-        el("p", { className: "story-card", text: l.why.story }),
-        el("p", { className: "warn-text", text: `الأثر: ${l.why.impact}` }),
-        next("📖 اشرح لي", () => showLesson("explain")));
+      mentorText = t("lesson.coach_why");
+      return render("why", lessonCard(el("h1", { text: `🎬 ${l.why.title}` }), el("p", { className: "story-card", text: l.why.story }),
+        el("p", { className: "warn-text", text: `${t("lesson.impact")}: ${l.why.impact}` }), nextButton(t("lesson.explain_me"), () => showLesson("learn"))));
     }
-    if (station === "explain") {
-      return lessonShell("explain",
-        el("h1", { text: `📖 ${l.explanation.title}` }),
-        el("p", { className: "muted small", text: `${l.depth_label} · ${l.style_label}` }),
-        explanationBlocks(l), takeaways(l),
-        next("🤝 نحل مثالًا سوا", () => showLesson("together")));
+    if (station === "learn") {
+      mentorText = t("lesson.coach_learn");
+      return render("learn", lessonCard(
+        el("div", { className: "head-row" }, el("h1", { text: l.explanation.title }), chip(t(`depth.${l.depth}.label`), "amber")),
+        styleTabs(l), explanationBlocks(l), keyIdeas(l),
+        el("div", { className: "banner" }, el("span", { className: "icon-badge" }, svg("star", 20)), el("div", {}, el("strong", { text: t("lesson.ready_title") }), el("p", { className: "hint", text: t("lesson.ready_sub") }))),
+        nextButton(t("lesson.lets_practice"), () => showLesson("together"))));
     }
     if (station === "together") {
+      mentorText = t("lesson.coach_together");
       const ex = l.example;
       const steps = el("ol", { className: "expert-steps" });
       let shown = 0;
       const final = el("div", { className: "hidden" });
-      const more = button("الخطوة التالية", "btn-secondary", () => {
+      const more = button(t("lesson.next_step"), "btn-secondary", () => {
         const s = ex.steps[shown++];
-        steps.append(el("li", {}, el("strong", { text: s.step }), el("div", { className: "muted small", text: s.explanation })));
+        steps.append(el("li", {}, el("strong", { text: App.plain(s.step) }), el("div", { className: "hint", text: s.explanation })));
         if (shown >= ex.steps.length) {
           more.remove();
           final.classList.remove("hidden");
@@ -179,22 +221,20 @@
         try {
           const r = await api("POST", `/api/lessons/${encodeURIComponent(l.lesson_id)}/final-step`, { choice: i });
           options.children[r.correct_index].classList.add("selected");
-          final.append(
-            el("p", { className: r.correct ? "ok-text" : "warn-text", text: `${r.correct ? "✓ صح! " : `الخطوة الصحيحة: «${ex.final_options[r.correct_index]}». `}${r.explanation}` }),
-            next("✅ تأكد سريع", () => showLesson("check")));
+          final.append(el("p", { className: r.correct ? "ok-text" : "warn-text", text: `${r.correct ? t("lesson.right") : t("lesson.right_step", { step: ex.final_options[r.correct_index] })} ${r.explanation}` }),
+            nextButton(t("lesson.quick_check"), () => showLesson("check")));
         } catch (e) {
           final.append(el("p", { className: "error", text: e.message }));
         }
       })));
-      final.append(el("h3", { text: `👉 دورك: ${ex.final_question}` }), options);
-      return lessonShell("together",
-        el("h1", { text: "🤝 نسوي سوا" }),
-        el("p", { className: "muted", text: "المرشد يحل معك خطوة بخطوة، وأنت تكمل الخطوة الأخيرة." }),
-        el("p", { text: ex.problem }), artifact(ex.lines), steps, el("div", { className: "actions" }, more), final);
+      final.append(el("h3", { text: `👉 ${t("lesson.your_turn")}: ${ex.final_question}` }), options);
+      return render("together", lessonCard(el("h1", { text: `🤝 ${t("station.together")}` }), el("p", { className: "muted", text: t("lesson.together_sub") }),
+        el("p", { text: ex.problem }), artifact(ex.lines), steps, el("div", { className: "actions" }, more), final));
     }
     if (station === "check") {
+      mentorText = t("lesson.coach_check");
       let answered = 0;
-      const done = el("div", { className: "hidden" }, next(`🎮 ابدأ مهمة «${card().name}»`, startActivity));
+      const done = el("div", { className: "hidden" }, nextButton(t("lesson.start_activity", { activity: actName() }), startActivity));
       const qs = l.check.map((q, idx) => {
         const fb = el("div", {});
         const opts = el("div", { className: "solutions" }, ...q.options.map((o, i) => button(o, "btn-secondary step-card", async () => {
@@ -202,7 +242,7 @@
           try {
             const r = await api("POST", `/api/lessons/${encodeURIComponent(l.lesson_id)}/check`, { index: idx, choice: i });
             opts.children[r.correct_index].classList.add("selected");
-            fb.append(el("p", { className: r.correct ? "ok-text" : "warn-text", text: `${r.correct ? "✓ " : "✗ "}${r.explanation}` }));
+            fb.append(el("p", { className: r.correct ? "ok-text" : "warn-text", text: `${r.correct ? "✓" : "✗"} ${r.explanation}` }));
           } catch (e) {
             fb.append(el("p", { className: "error", text: e.message }));
           }
@@ -210,8 +250,7 @@
         })));
         return el("div", { className: "lesson-section" }, el("h3", { text: `${idx + 1}. ${q.question}` }), opts, fb);
       });
-      return lessonShell("check", el("h1", { text: "✅ تأكد سريع" }),
-        el("p", { className: "muted", text: "بدون درجات — فقط لتطمئن أنك فهمت." }), ...qs, done);
+      return render("check", lessonCard(el("h1", { text: `✅ ${t("station.check")}` }), el("p", { className: "muted", text: t("lesson.no_grades") }), ...qs, done));
     }
   }
 
@@ -224,44 +263,23 @@
     showActivityIntro();
   }
 
-  /* ---------- Mission card / activity intro ---------- */
+  /* ---------- Mission card ---------- */
 
-  const RULES = {
-    common: [
-      "💡 التلميح متاح دائمًا ويكلّف 5 XP، أما «📖 راجع الشرح» فمجاني في أي لحظة.",
-      "المراحل تتدرج حسب أدائك، وآخرها 👑 التحدي النهائي: موقف جديد بلا تلميحات.",
-      "الخطأ لا يُنهي اللعبة، والمرشد يشرح لك لماذا. ونقاطك لا تنزل تحت الصفر.",
-      "نسجّل محاولاتك (نوع الخطأ، التلميحات، الزمن التقريبي، التبرير) لنختار خطوتك التالية ولنوجّه إعادة القياس.",
-    ],
-    gap_hunter: "اكتشاف الخطأ 10 XP، والتصنيف +5، والتبرير +5، والإصلاح +10. الإنذار الكاذب −5.",
-    escape_room: "كل باب: القرار الصحيح من أول محاولة 20 XP (−5 لكل محاولة إضافية)، والتبرير +10، ورقم من رمز الخروج.",
-    work_challenge: "المدير يراجع تسليمك على معايير القبول بالنجوم. تقدر تعدّل وتعيد التسليم، وأفضل تسليم هو المحسوب.",
-    shadow: "التوقع الصحيح لخطوة الخبير 10 XP وبطاقة ممارسة ذهبية. في الظل العكسي: XP حسب تطابقك مع الخبير.",
-    teach_others: "مقياس فهم سعود يرتفع فقط مع الشرح الواضح الصحيح. في النهاية يدخل سعود اختبارًا — إذا نجح، تنجح أنت.",
-  };
-
-  function fillIntro(c, competencyName) {
-    $("intro-icon").textContent = c.icon;
-    $("intro-name").textContent = c.name;
-    $("intro-competency").textContent = `الفجوة: ${competencyName}`;
-    $("intro-rules").replaceChildren(...[RULES[c.activity_type], ...RULES.common].map((t) => el("li", { text: t })));
-    $("intro-review").classList.toggle("hidden", !lesson);
+  function rules() {
+    return el("ul", { className: "plain-list" }, ...[t(`rules.${activityType}`), t("rules.hint"), t("rules.levels"), t("rules.no_punish"), t("rules.tracking")].map((r) => el("li", { className: "small", text: r })));
   }
 
   function showActivityIntro() {
-    stations("play", LESSON_DONE);
-    const c = card();
-    fillIntro(c, step.name);
-    $("intro-summary").textContent = c.summary;
-    $("mission-card").classList.add("hidden");
-    const start = $("intro-start");
-    start.textContent = "🎮 ابدأ المهمة";
-    start.onclick = createActivity;
-    show("intro");
+    mentorText = t("act.coach_intro");
+    render("play", el("div", { className: "mission-banner" }, el("span", { className: "chip-tag solid" }, activityIcon(activityType, 16), el("span", { text: actName() })),
+      el("h2", { text: step.name }), el("p", { text: t(`activity.${activityType}.summary`) })),
+    el("div", { className: "card" }, el("h3", { text: t("act.how_play") }), rules(),
+      el("div", { className: "actions between" }, lesson ? button(t("act.review_lesson"), "btn-secondary", reviewLesson, "book") : el("span", {}),
+        button(t("act.start_mission"), "btn-big", createActivity, "play"))));
   }
 
   async function createActivity() {
-    loading("المرشد يجهّز مهمتك…", "يُولَّد المحتوى حسب فجوتك، وقد يستغرق ذلك حتى دقيقة.");
+    loading(t("act.preparing"), t("act.preparing_hint"));
     try {
       act = await api("POST", `/api/assessments/${encodeURIComponent(assessmentId)}/activities`, { competency_id: competencyId, activity_type: activityType });
     } catch (e) {
@@ -271,34 +289,29 @@
     history.replaceState(null, "", `activity.html?id=${encodeURIComponent(activityId)}`);
     showMissionFirst = act.current_level === 1 && act.levels[0].xp === 0 && act.levels[0].hints_used === 0;
     levelState = {};
-    render();
+    drive();
   }
 
   function showMission() {
-    stations("play", LESSON_DONE);
-    fillIntro(act.activity, act.competency_name);
-    $("mission-card").classList.remove("hidden");
-    $("mission-title").textContent = `بطاقة المهمة: ${act.mission.title}`;
-    $("mission-story").textContent = act.mission.story;
-    $("mission-goal").textContent = act.mission.goal;
-    $("mission-win").textContent = act.mission.win_condition;
-    $("intro-summary").textContent = "";
-    const start = $("intro-start");
-    start.textContent = "ابدأ المرحلة الأولى";
-    start.onclick = () => {
-      showMissionFirst = false;
-      render();
-    };
-    show("intro");
+    mentorText = act.levels[0].mentor_message;
+    render("play", el("div", { className: "mission-banner" }, el("span", { className: "chip-tag solid", text: t("act.mission_card") }),
+      el("h2", { text: act.mission.title }), el("p", { text: act.mission.story })),
+    el("div", { className: "card" },
+      el("p", {}, el("strong", { text: `${t("act.goal")}: ` }), document.createTextNode(act.mission.goal)),
+      el("p", {}, el("strong", { text: `${t("act.win")}: ` }), document.createTextNode(act.mission.win_condition)),
+      rules(),
+      el("div", { className: "actions end" }, button(t("act.start_level_1"), "btn-big", () => {
+        showMissionFirst = false;
+        drive();
+      }, "play"))));
   }
 
   /* ---------- Levels ---------- */
 
-  function render() {
-    document.title = act.activity.name;
+  function drive() {
     if (act.status === "completed") return showResult();
     if (act.status === "generating") {
-      loading("المرشد يجهّز المرحلة التالية…");
+      loading(t("act.next_level"));
       return setTimeout(reload, 3000);
     }
     if (showMissionFirst) return showMission();
@@ -308,49 +321,51 @@
   async function reload() {
     try {
       act = await api("GET", `/api/activities/${encodeURIComponent(activityId)}`);
-      render();
+      drive();
     } catch (e) {
       fail(e.message, reload);
     }
   }
 
   const level = () => act.levels[act.levels.length - 1];
-  const renderer = () => ActivityKit.renderers[act.activity.activity_type];
+  const renderer = () => ActivityKit.renderers[activityType];
 
-  function showLevel(mentorText) {
+  function showLevel(message) {
     const lv = level();
-    stations(lv.is_boss ? "boss" : "play", LESSON_DONE.concat(lv.is_boss ? ["play"] : []));
-    $("lv-title").textContent = lv.is_boss ? "👑 التحدي النهائي" : `المرحلة ${lv.number} من ${act.total_levels - 1}`;
-    $("lv-xp").textContent = act.xp;
-    $("lv-stat").textContent = renderer().stat(lv, act);
-    const hint = $("lv-hint");
-    hint.classList.toggle("hidden", lv.is_boss);
-    hint.textContent = `💡 تلميح (−${act.rules.hint} XP)`;
-    hint.disabled = !lv.can_hint;
-    $("lv-review").classList.toggle("hidden", !lesson);
-    $("lv-mentor").textContent = mentorText || lv.mentor_message;
-    $("lv-hints").classList.toggle("hidden", !lv.hints.length);
-    $("lv-hints").replaceChildren(...lv.hints.map((h) => el("li", { text: `💡 ${h}` })));
-    $("lv-finish").textContent = (renderer().finishLabel && renderer().finishLabel(lv)) || "إنهاء المرحلة";
-    $("lv-finish").disabled = false;
-    $("view-level").setAttribute("aria-busy", "false");
+    mentorText = message || lv.mentor_message;
     levelState[lv.number] = levelState[lv.number] || {};
+    const body = el("div", {});
+    const hint = button(t("act.hint", { n: act.rules.hint }), "btn-secondary", useHint, "bulb");
+    hint.disabled = !lv.can_hint || lv.is_boss;
+    const finish = button((renderer().finishLabel && renderer().finishLabel(lv)) || t("act.finish_level"), "", finishLevel, "arrow");
     const ctx = {
-      act,
-      state: levelState[lv.number],
-      level,
-      rerender: (msg) => showLevel(msg || $("lv-mentor").textContent),
-      mentor: (msg) => ($("lv-mentor").textContent = msg),
+      act, state: levelState[lv.number], level,
+      rerender: (msg) => showLevel(msg || mentorText),
+      mentor: (msg) => {
+        mentorText = msg;
+        const box = document.getElementById("nudge-line");
+        if (box) box.textContent = msg;
+      },
       send,
     };
-    renderer().render($("lv-body"), lv, ctx);
-    show("level");
+    render(lv.is_boss ? "boss" : "play",
+      el("div", { className: "mission-banner" },
+        el("span", { className: "chip-tag solid", text: lv.is_boss ? `👑 ${t("station.boss")}` : t("act.level_of", { n: lv.number, total: act.total_levels - 1 }) }),
+        el("h2", { text: act.mission ? act.mission.title : actName() }),
+        el("p", { className: "small", text: act.mission ? act.mission.goal : "" })),
+      el("div", { className: "status-row" }, chip(`⭐ ${act.xp} XP`, "amber"), chip(renderer().stat(lv, act), "cyan"),
+        lv.is_boss ? chip(t("act.no_hints"), "muted") : chip(`💡 ${t("act.hints_used_n", { n: lv.hints_used })}`, "muted")),
+      lv.hints.length ? el("ul", { className: "hint-list" }, ...lv.hints.map((h) => el("li", { text: `💡 ${h}` }))) : null,
+      body,
+      el("div", { className: "card soft nudge-say" }, nudge(52), el("div", { className: "bubble-box" }, el("strong", { text: t("act.nudge_says") }), el("p", { id: "nudge-line", text: mentorText }))),
+      el("div", { className: "actions between" }, el("span", { className: "actions" }, lv.is_boss ? null : hint, lesson ? button(t("act.review_lesson"), "btn-secondary", reviewLesson, "book") : null), finish));
+    renderer().render(body, lv, ctx);
   }
 
   function setBusy(text) {
-    $("view-level").setAttribute("aria-busy", "true");
-    $("view-level").querySelectorAll("button, textarea, input").forEach((n) => (n.disabled = true));
-    if (text) $("lv-mentor").textContent = `⏳ ${text}`;
+    page.querySelectorAll("button, textarea, input").forEach((n) => (n.disabled = true));
+    const box = document.getElementById("nudge-line");
+    if (box && text) box.textContent = `⏳ ${text}`;
   }
 
   async function send(endpoint, body, onOutcome, loadingText) {
@@ -368,7 +383,7 @@
     try {
       const res = await api("POST", `/api/activities/${encodeURIComponent(activityId)}/hint`);
       act = res.activity;
-      showLevel(`تلميح (−${act.rules.hint} XP): ${res.outcome.hint}`);
+      showLevel(t("act.hint_text", { n: act.rules.hint, hint: res.outcome.hint }));
     } catch (e) {
       showLevel(e.message);
     }
@@ -379,14 +394,15 @@
     const confirmText = renderer().finishConfirm && renderer().finishConfirm(lv);
     if (confirmText && !confirm(confirmText)) return;
     const number = lv.number;
-    const badgesBefore = new Set(act.badges.map((b) => b.id));
-    loading(lv.is_boss ? "نحسب نتيجتك…" : "المرشد يجهّز المرحلة التالية…", lv.is_boss ? "" : "قد يستغرق ذلك حتى دقيقة.");
+    const before = new Set(act.badges.map((b) => b.id));
+    loading(lv.is_boss ? t("act.computing") : t("act.next_level"), lv.is_boss ? "" : t("act.preparing_hint"));
     try {
       act = await api("POST", `/api/activities/${encodeURIComponent(activityId)}/finish-level`);
     } catch (e) {
       return fail(e.message, finishLevel);
     }
-    showSummary(act.levels[number - 1], act.badges.filter((b) => !badgesBefore.has(b.id)));
+    if (act.status === "completed") report = await api("GET", `/api/assessments/${encodeURIComponent(assessmentId)}/report`).catch(() => report);
+    showSummary(act.levels[number - 1], act.badges.filter((b) => !before.has(b.id)));
   }
 
   /* ---------- 📖 Review the lesson (free) ---------- */
@@ -401,80 +417,103 @@
       }
     }
     if (!l) return;
-    const ex = l.example;
-    $("lesson-dialog-body").replaceChildren(
+    const dialog = el("dialog", { className: "lesson-dialog" },
       el("h2", { text: `📖 ${l.explanation.title}` }),
-      el("p", { className: "muted small", text: "مراجعة الشرح مجانية ولا تخصم نقاطًا." }),
-      explanationBlocks(l, false),
-      takeaways(l),
-      el("h3", { text: "🤝 المثال المحلول" }),
-      el("p", { text: ex.problem }),
-      artifact(ex.lines),
-      el("ol", { className: "expert-steps" }, ...ex.steps.map((s) => el("li", {}, el("strong", { text: s.step }), el("div", { className: "muted small", text: s.explanation })))));
-    $("lesson-dialog").showModal();
+      el("p", { className: "hint", text: t("act.review_free") }),
+      explanationBlocks(l, false), keyIdeas(l),
+      el("h3", { text: `🤝 ${t("station.together")}` }), el("p", { text: l.example.problem }), artifact(l.example.lines),
+      el("ol", { className: "expert-steps" }, ...l.example.steps.map((s) => el("li", {}, el("strong", { text: App.plain(s.step) }), el("div", { className: "hint", text: s.explanation })))),
+      el("form", { attrs: { method: "dialog" }, className: "actions end" }, el("button", { className: "btn", type: "submit", text: t("act.back_to_mission") })));
+    dialog.addEventListener("close", () => dialog.remove());
+    document.body.append(dialog);
+    dialog.showModal();
   }
 
   /* ---------- Summary & result ---------- */
 
-  function stat(label, value) {
-    return el("div", { className: "stat" }, el("span", { className: "stat-label", text: label }), el("span", { className: "stat-value", text: String(value) }));
+  function stat(icon, label, value) {
+    return el("div", { className: "stat" }, el("span", { className: "ico" }, svg(icon, 20)), el("div", {}, el("small", { text: label }), el("strong", { text: String(value) })));
   }
 
   function badgeChip(b) {
-    return el("div", { className: "earned-badge" }, el("span", { className: "badge-icon", text: b.icon }), el("strong", { text: b.name }), el("span", { className: "muted small", text: b.description }));
+    return el("div", { className: "badge-line earned" }, el("span", { className: "ico", text: BADGE_ICONS[b.id] || b.icon }),
+      el("div", {}, el("strong", { text: t(`badge.${b.id}.name`) }), el("span", { className: "hint", text: t(`badge.${b.id}.desc`) })));
   }
 
   function showSummary(lv, newBadges) {
-    $("sum-title").textContent = lv.is_boss ? "انتهى التحدي النهائي" : `انتهت المرحلة ${lv.number}`;
-    $("sum-stats").replaceChildren(stat("نقاط المرحلة", `${Math.max(0, lv.xp)} / ${lv.max_xp} XP`), stat("تلميحات", lv.hints_used));
-    $("sum-badges").replaceChildren(...newBadges.map(badgeChip));
     const r = renderer();
-    $("sum-extra").replaceChildren(...((r.summary && r.summary(lv, act)) || []).filter(Boolean));
-    const nextBtn = $("sum-next");
-    nextBtn.textContent = act.status === "completed" ? "عرض النتيجة" : level().is_boss ? "👑 إلى التحدي النهائي" : "المرحلة التالية";
-    nextBtn.onclick = render;
-    show("summary");
+    mentorText = t("act.coach_summary");
+    render(lv.is_boss ? "boss" : "play", el("div", { className: "card" },
+      el("h1", { text: lv.is_boss ? t("act.boss_done") : t("act.level_done", { n: lv.number }) }),
+      el("div", { className: "stat-row" }, stat("star", t("act.level_xp"), `${Math.max(0, lv.xp)} / ${lv.max_xp}`), stat("bulb", t("act.hints_used"), lv.hints_used)),
+      ...newBadges.map(badgeChip),
+      ...((r.summary && r.summary(lv, act)) || []).filter(Boolean),
+      el("div", { className: "actions end" }, button(act.status === "completed" ? t("act.see_result") : level().is_boss ? t("act.to_boss") : t("act.next_level_btn"), "btn-big", drive, "arrow"))));
+  }
+
+  function rankName(rank) {
+    if (activityType === "work_challenge") {
+      const job = (act.mission && act.mission.job_title) || t("rank.work_challenge.default_job");
+      return rank === "beginner" ? t("rank.work_challenge.beginner") : rank === "mid" ? job : t("rank.work_challenge.expert", { job });
+    }
+    return t(`rank.${activityType}.${rank}`);
+  }
+
+  function upNext() {
+    const steps = (report && report.learning_journey) || [];
+    const prog = (report && report.learning_progress) || {};
+    // Same rule as the journey map: the next station is the first one not played yet.
+    const nextStep = steps.find((s) => !prog[s.competency_id] && s.competency_id !== competencyId);
+    if (!nextStep) return null;
+    const i = steps.indexOf(nextStep);
+    return el("div", { className: "card" },
+      el("div", { className: "head-row" }, el("span", { className: "eyebrow", text: t("act.up_next") }), chip(t("act.unlocked_one"), "cyan", "lock")),
+      el("span", { className: "hint", text: t("report.station", { n: i + 1 }) }), el("h2", { text: nextStep.name }),
+      el("a", { className: "btn", href: `activity.html?${new URLSearchParams({ assessment: assessmentId, competency: nextStep.competency_id, type: nextStep.activity.activity_type })}` },
+        el("span", { text: t("act.go_station", { n: i + 1 }) }), svg("arrow", 18, "flip")));
+  }
+
+  function passport() {
+    const steps = (report && report.learning_journey) || [];
+    const prog = (report && report.learning_progress) || {};
+    return el("div", { className: "card" }, el("h2", {}, svg("briefcase", 20), el("span", { text: ` ${t("act.passport")}` })),
+      el("div", { className: "passport-list" }, ...steps.map((s) => {
+        const p = prog[s.competency_id];
+        return el("div", {}, el("span", { text: s.name }), p ? chip(t(`progress.${p.status}`), p.status === "passed" ? "green" : "amber") : chip(t("progress.todo"), "muted"));
+      })));
   }
 
   function showResult() {
-    stations("report", LESSON_DONE.concat(["play", "boss"]));
     const r = act.result;
-    $("res-title").textContent = r.decision_title;
-    $("res-message").textContent = r.decision_message;
-    $("res-before").textContent = `قبل: ${Math.round(r.score_before)}%`;
-    $("res-after").textContent = `الآن: ${Math.round(r.score_after)}%`;
-    $("res-target").style.insetInlineStart = `${r.target_score}%`;
-    $("res-target-label").textContent = `المستوى المطلوب ${r.target_score}% · نتيجة التحدي النهائي ${r.boss_percent}%`;
-    const bar = $("res-bar");
-    bar.classList.toggle("below", r.score_after < r.target_score);
-    bar.style.width = `${r.score_before}%`;
-    requestAnimationFrame(() => requestAnimationFrame(() => (bar.style.width = `${r.score_after}%`)));
-    $("res-stats").replaceChildren(stat("نقاط الخبرة", `${r.xp} / ${r.max_xp}`), stat("رتبتك", r.rank));
-    $("res-badges").replaceChildren(...act.badges.map(badgeChip));
-    const signals = r.behavior || [];
-    $("res-behavior").classList.toggle("hidden", !signals.length);
-    $("res-behavior-list").replaceChildren(...signals.map((s) => el("li", {}, el("strong", { text: `${s.icon} ${s.title}: ` }), document.createTextNode(`${s.interpretation} ${s.decision}`))));
-
-    const actions = [];
-    const back = el("a", { className: r.decision === "passed" ? "btn" : "btn btn-secondary", text: "📊 العودة إلى الرحلة التعليمية" });
-    back.href = `report.html?id=${encodeURIComponent(act.assessment_id)}#journey`;
-    if (r.decision === "partial") actions.push(button("🔄 جولة أخرى", "", createActivity));
+    mentorText = t(`decision.${r.decision}.message`);
+    const jump = Math.round(r.score_after - r.score_before);
+    const meter = bar(r.score_before, r.target_score, "big");
+    const fill = meter.querySelector(".bar-fill");
+    requestAnimationFrame(() => requestAnimationFrame(() => (fill.style.width = `${r.score_after}%`)));
+    const back = el("a", { className: "btn btn-big", href: `journey.html?id=${encodeURIComponent(act.assessment_id)}` }, el("span", { text: t("act.back_journey") }), svg("compass", 18));
+    const actions = [back];
+    if (r.decision === "partial") actions.unshift(button(t("act.another_round"), "btn-secondary btn-big", createActivity, "refresh"));
     if (r.decision === "persistent" && r.alternative) {
-      const alt = el("a", { className: "btn", text: `🔀 جرّب: ${r.alternative.icon} ${r.alternative.name}` });
-      alt.href = `activity.html?${new URLSearchParams({ assessment: act.assessment_id, competency: act.competency_id, type: r.alternative.activity_type })}`;
-      actions.push(alt);
+      actions.unshift(el("a", { className: "btn btn-secondary btn-big", href: activityUrl(r.alternative.activity_type) },
+        el("span", { text: t("act.try_method", { name: t(`activity.${r.alternative.activity_type}.name`) }) })));
     }
-    actions.push(back);
-    $("res-actions").replaceChildren(...actions);
-    show("result");
+    render("boss",
+      el("div", { className: "card" },
+        el("div", { className: "nudge-say" }, nudge(52), el("div", { className: "bubble-box" }, el("strong", { text: t("act.nudge_says") }), el("p", { text: t(`decision.${r.decision}.message`) }))),
+        el("div", { className: "head-row" },
+          el("div", {}, el("h1", { className: "big-title", text: `${t(`decision.${r.decision}.title`)}${r.decision === "passed" ? " 🎉" : ""}` }), el("p", { className: "muted", text: t("act.result_sub", { activity: actName(), gap: step.name }) })),
+          el("span", { className: "actions" }, ...act.badges.slice(-2).map((b) => chip(`${BADGE_ICONS[b.id]} ${t(`badge.${b.id}.name`)}`, "")), chip(`⭐ +${r.xp} XP`, "amber"))),
+        el("div", { className: "card soft" },
+          el("div", { className: "bar-row" }, el("strong", { text: t("act.gap_mastery") }),
+            el("span", { text: t("act.before_after", { before: Math.round(r.score_before), after: Math.round(r.score_after) }) })),
+          meter,
+          el("div", { className: "head-row" }, el("span", { className: "hint", text: t("act.target", { n: r.target_score }) }), jump > 0 ? chip(`🎉 +${jump}% ${t("act.jump")}`, "cyan") : null)),
+        el("div", { className: "stat-row" }, stat("check", t("act.final_score"), `${r.boss_percent}%`), stat("bulb", t("act.hints_used"), act.hints_used), stat("trophy", t("act.rank"), rankName(r.rank))),
+        (r.behavior || []).length ? el("div", {}, el("h3", { text: t("act.what_noticed") }), el("ul", { className: "signal-list" }, ...r.behavior.map((s) =>
+          el("li", {}, el("strong", { text: `${s.icon} ${t(`signal.${s.id}.title`)}: ` }), document.createTextNode(`${t(`signal.${s.id}.value`, s.params || {})} — ${t(`signal.${s.id}.decision`)}`))))) : null,
+        el("div", { className: "actions" }, ...actions)),
+      upNext() || "", passport());
   }
 
-  /* ---------- Init ---------- */
-
-  $("lv-hint").addEventListener("click", useHint);
-  $("lv-finish").addEventListener("click", finishLevel);
-  $("lv-review").addEventListener("click", reviewLesson);
-  $("intro-review").addEventListener("click", reviewLesson);
-  $("retry-btn").addEventListener("click", () => retryAction && retryAction());
   init();
 })();

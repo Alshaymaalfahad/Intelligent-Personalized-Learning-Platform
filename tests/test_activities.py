@@ -144,7 +144,7 @@ def test_lesson_before_activity(c, ai, journey):
     comp = steps[0]["competency_id"]
     info = c.get(f"/api/assessments/{aid}/lessons/{comp}").json()
     assert info["depth"] in {"compound", "application", "shallow", "mastery"} and info["lesson"] is None
-    assert {s["id"] for s in info["styles"]} == {"brief", "story", "visual", "interactive"}
+    assert set(info["styles"]) == {"brief", "story", "visual", "interactive"}
 
     lesson = c.post(f"/api/assessments/{aid}/lessons/{comp}", json={"style": "visual"}).json()
     assert lesson["style"] == "visual" and lesson["why"]["story"] and len(lesson["explanation"]["takeaways"]) == 3
@@ -227,7 +227,7 @@ def test_work_challenge(c, ai, journey):
     while act["status"] == "playing":
         _act(c, act_id, "submit", {"text": "تسليم كامل يغطي كل المعايير بدقة"})
         act = _finish(c, act_id)
-    assert act["result"]["rank"] in {"متدرب", "محلل نظم", "محلل نظم أول"}
+    assert act["result"]["rank"] in {"beginner", "mid", "expert"} and act["mission"]["job_title"] == "محلل نظم"
 
 
 def test_shadow(c, ai, journey):

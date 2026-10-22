@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 class Mission(BaseModel):
     title: str
-    story: str = Field(description="2-3 short Arabic sentences: a realistic work situation with a little urgency")
+    story: str = Field(description="2-3 short sentences: a realistic work situation with a little urgency")
     goal: str
     win_condition: str
 
@@ -71,7 +71,7 @@ class WorkTask(BaseModel):
 
 
 class WorkMission(Mission):
-    job_title: str = Field(description="Arabic job title for the trainee's role, e.g. محلل نظم")
+    job_title: str = Field(description="Job title for the trainee's role, e.g. Systems Analyst")
 
 
 class WorkFirstOutput(BaseModel):
@@ -123,7 +123,7 @@ class ShadowLevel(BaseModel):
 
 
 class ShadowMission(Mission):
-    expert_name: str = Field(description="Arabic name and role of the expert, e.g. م. خالد — مهندس برمجيات أول")
+    expert_name: str = Field(description="Name and role of the expert, e.g. Khalid — Senior Software Engineer")
 
 
 class ShadowFirstOutput(BaseModel):

@@ -15,19 +15,15 @@ from sqlalchemy.orm import Session
 
 from .assessment_engine import EngineError
 from .behavior import competency_behavior
-from .gap_analyzer import STATUS_LABELS, TARGET_SCORE, build_report
+from .gap_analyzer import TARGET_SCORE, build_report
+from .i18n import lang_of
 from .learning_activities import activity_card, choose_activities
 from .models import Assessment
 
 PARTIAL_GAIN = 10
 HUMAN_SUPPORT_AFTER = 2  # activities tried before suggesting a human (mentor/trainer)
 
-DECISIONS = {
-    "closed": ("✅ أُغلقت الفجوة", "حقق معيار النجاح في مواقف جديدة مع أدلة كافية على أداء مستقل."),
-    "partial": ("🔄 تحسن جزئي", "تحسن الأداء لكنه لم يبلغ المعيار بعد؛ يستمر الدعم."),
-    "persistent": ("🔀 فجوة مستمرة", "استمر نمط الخطأ؛ نجرّب أسلوب تعلم مختلفًا."),
-    "insufficient": ("❔ أدلة غير كافية", "لا تكفي الأدلة للحكم؛ نحتاج قياسًا إضافيًا."),
-}
+# Decision codes (translated by the frontend): closed | partial | persistent | insufficient
 
 
 # ---------------------------------------------------------------------------
@@ -66,6 +62,8 @@ def _knowledge_definition(gap: dict) -> dict:
 def create(db: Session, assessment: Assessment) -> Assessment:
     if assessment.status != "completed":
         raise EngineError(409, "أكمل التقييم أولًا.")
+    if assessment.kind == "journey":
+        raise EngineError(409, "إعادة القياس غير متاحة لرحلة المهارات.")
     existing = _child(db, assessment)
     if existing:
         return existing
@@ -113,7 +111,11 @@ def create(db: Session, assessment: Assessment) -> Assessment:
         skill_blueprint=skill_blueprint,
         knowledge_blueprint=knowledge_blueprint,
         skill_results=[] if not skill_blueprint else None,
-        adaptation_summary="إعادة القياس تتحقق من فجوات رحلتك التعليمية بمواقف جديدة لم ترها من قبل.",
+        adaptation_summary=(
+            "إعادة القياس تتحقق من فجوات رحلتك التعليمية بمواقف جديدة لم ترها من قبل."
+            if lang_of(assessment.trainee) == "ar"
+            else "The reassessment checks your learning-journey gaps with new situations you have not seen before."
+        ),
         reassessment_context={"parent_assessment_id": assessment.assessment_id, "competencies": context},
     )
     db.add(child)
@@ -152,7 +154,7 @@ def question_context(assessment: Assessment, competency_id: str) -> str:
     for signal in ctx["behavior"].get("signals", []):
         guidance = _SIGNAL_GUIDANCE.get(signal["id"])
         if guidance:
-            lines.append("- " + guidance.format(value=signal["value"]))
+            lines.append("- " + guidance.format(value=signal.get("params", {}).get("category", "")))
     return "\n".join(lines)
 
 
@@ -190,11 +192,7 @@ def build_reassessment_report(assessment: Assessment, skill_results: list[dict],
     for cid, ctx in comps.items():
         r = results[cid]
         decision = _decide(r["score"], ctx["baseline"], r["status"])
-        title, message = DECISIONS[decision]
-        tried = len(ctx["activity_types"])
-        human = decision == "persistent" and tried >= HUMAN_SUPPORT_AFTER
-        if human:
-            message += " جرّبنا أكثر من نشاط؛ يُقترح تدخل بشري (مرشد أو مدرب)."
+        human = decision == "persistent" and len(ctx["activity_types"]) >= HUMAN_SUPPORT_AFTER
         signals = ctx["behavior"].get("signals", [])
         comparison.append({
             "competency_id": cid,
@@ -206,18 +204,21 @@ def build_reassessment_report(assessment: Assessment, skill_results: list[dict],
             "after": r["score"],
             "target_score": TARGET_SCORE,
             "decision": decision,
-            "decision_title": title,
-            "decision_message": message,
             "needs_human": human,
             "behavior": signals,
         })
 
         metrics = ctx["behavior"].get("metrics", {})
         if decision == "closed" and any(s["id"] == "weak_justification" for s in signals):
+            # Written in the trainee's language, like other generated content.
+            arabic = lang_of(assessment.trainee) == "ar"
             gap = {
                 "competency_id": f"{cid}J"[:10],
-                "name": f"تبرير الحل في «{ctx['name']}»",
-                "description": f"شرح سبب الخطأ وسبب الإصلاح في {ctx['name']}، لا اكتشافه فقط.",
+                "name": f"تبرير الحل في «{ctx['name']}»" if arabic else f"Justifying solutions in “{ctx['name']}”",
+                "description": (
+                    f"شرح سبب الخطأ وسبب الإصلاح في {ctx['name']}، لا اكتشافه فقط." if arabic
+                    else f"Explaining why something is wrong and why the fix works in {ctx['name']}, not just spotting it."
+                ),
                 "dimension": "knowledge",
                 "skill_kind": None,
                 "importance": 2,
@@ -225,12 +226,11 @@ def build_reassessment_report(assessment: Assessment, skill_results: list[dict],
                 "score": round(100 * (metrics.get("explanation_rate") or 0), 1),
                 "target_score": TARGET_SCORE,
                 "status": "potential_gap",
-                "status_label": STATUS_LABELS["potential_gap"],
                 "evidence": [],
                 "question_count": 0,
                 "question_types": [],
                 "low_confidence_count": 0,
-                "origin": "ظهرت أثناء التدريب: يكتشف الخطأ بدقة لكن تبريره أضعف.",
+                "origin": "detects_not_justifies",  # translated by the frontend
             }
             new_gaps.append(gap)
 

@@ -39,34 +39,34 @@ def _verify(provider: str, key: str, model: str) -> bool:
 
             sdk.Anthropic(api_key=key, max_retries=1, timeout=20).models.retrieve(model)
     except sdk.AuthenticationError:
-        print("✗ المفتاح غير صالح (رفضه الخادم).")
+        print("✗ The key is invalid (rejected by the provider).")
         return False
     except sdk.NotFoundError:
-        print(f"✗ المفتاح صالح، لكن النموذج {model} غير متاح له. غيّر AI_MODEL في .env.")
+        print(f"✗ The key works, but model {model} is not available to it. Change AI_MODEL in .env.")
         return False
     except sdk.APIConnectionError:
-        print("! تعذّر الاتصال للتحقق (الإنترنت؟). سيُحفظ المفتاح دون تحقق.")
+        print("! Could not connect to verify (internet?). The key will be saved without verification.")
         return True
     except sdk.APIStatusError as e:
-        print(f"! تعذّر التحقق (رمز {e.status_code}). سيُحفظ المفتاح دون تحقق.")
+        print(f"! Could not verify (status {e.status_code}). The key will be saved without verification.")
         return True
-    print(f"✓ المفتاح يعمل مع النموذج {model}.")
+    print(f"✓ The key works with model {model}.")
     return True
 
 
 def main() -> int:
-    key = getpass.getpass("الصق مفتاح API (لن يظهر أثناء الكتابة): ").strip()
+    key = getpass.getpass("Paste your API key (hidden while typing): ").strip()
     if not key:
-        print("لم يُدخل أي مفتاح.")
+        print("No key entered.")
         return 1
     provider = "anthropic" if key.startswith("sk-ant-") else "openai"
     key_var, default_model = PROVIDERS[provider]
     model = os.getenv("AI_MODEL", "").strip() or default_model
-    print(f"المزود: {provider}")
+    print(f"Provider: {provider}")
     if "--no-verify" not in sys.argv and not _verify(provider, key, model):
         return 1
     _write_env({"AI_PROVIDER": provider, key_var: key})
-    print(f"✓ حُفظ المفتاح في {ENV_FILE.name} (صلاحيات 600). أعد تشغيل الخادم ليقرأه.")
+    print(f"✓ Saved to {ENV_FILE.name} (permissions 600). Restart the server to use it.")
     return 0
 
 

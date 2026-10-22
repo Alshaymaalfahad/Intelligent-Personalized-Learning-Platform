@@ -13,10 +13,11 @@ import random
 from sqlalchemy.orm import Session
 
 from .assessment_engine import EngineError
+from .i18n import lang_of
 from .learning_activities import activity_card
 from .behavior import activity_behavior, record_event
 from .learning_engine import check_available, gap_context, journey_step, record_result
-from .models import Assessment, LearningActivity, utcnow
+from .models import Assessment, LearningActivity, public_id, utcnow
 from .question_generator import generate_validated, render_prompt
 from .schemas import HuntFirstLevelOutput, HuntLevel, HuntNextLevelOutput
 
@@ -36,13 +37,7 @@ LINES_RANGE = (8, 16)
 MAX_LINE_CHARS = 160
 CATEGORIES_RANGE = (4, 6)
 
-BADGES = {
-    "hawk_eye": ("🦅", "عين الصقر", "اكتشفت كل أخطاء مرحلة دون أي تلميح."),
-    "zero_false_alarms": ("🎯", "صفر إنذارات كاذبة", "لم تحدد أي سطر سليم كخطأ طوال النشاط."),
-    "boss_slayer": ("👑", "قاهر الزعيم", "اصطدت كل أخطاء مرحلة الزعيم."),
-    "ready": ("🏅", "جاهز للتحقق", "اجتزت مرحلة الزعيم؛ تُثبت إعادة القياس إغلاق الفجوة."),
-}
-RANKS = [(80, "صياد خبير"), (50, "صياد محترف"), (0, "صياد مبتدئ")]
+BADGE_ICONS = {"hawk_eye": "🦅", "zero_false_alarms": "🎯", "boss_slayer": "👑", "ready": "🏅"}  # names: frontend
 
 
 # ---------------------------------------------------------------------------
@@ -163,7 +158,7 @@ def _generate_level(assessment: Assessment, activity: LearningActivity, number: 
             "Also write the mission card shown before the game starts: `title` (short and catchy), "
             "`story` (2–3 short Arabic sentences setting a realistic work situation with a little urgency, "
             "e.g. a report must reach a client today), `goal` (one sentence), and `win_condition` "
-            "(one sentence, e.g. اصطد كل الأخطاء قبل أن يصل التقرير للعميل). Level 1 continues this story."
+            "(one sentence, e.g. \"catch every mistake before the report reaches the client\"). Level 1 continues this story."
         )
     else:
         mission_block = f"# Mission (for continuity — keep the same story world)\n\n{json.dumps(activity.mission, ensure_ascii=False)}"
@@ -179,6 +174,7 @@ def _generate_level(assessment: Assessment, activity: LearningActivity, number: 
     ]
     prompt = render_prompt(
         "gap_hunter_level.txt",
+        lang=lang_of(assessment.trainee),
         specialization=assessment.trainee.specialization,
         competency=json.dumps(ctx["competency"], ensure_ascii=False),
         gap_evidence=json.dumps(ctx["evidence"], ensure_ascii=False, indent=2) if ctx["evidence"] else "(no wrong answers recorded — evidence was limited)",
@@ -239,7 +235,7 @@ def start(db: Session, assessment: Assessment, competency_id: str) -> LearningAc
     )
     db.add(activity)
     db.flush()
-    activity.activity_id = f"LA-{activity.id:04d}"
+    activity.activity_id = public_id("LA")
     db.commit()
     try:
         mission, level = _generate_level(assessment, activity, 1, difficulty)
@@ -413,7 +409,7 @@ def finish_level(db: Session, assessment: Assessment, activity: LearningActivity
         _award(activity, "ready")
     total_max = sum(len(lv["errors"]) for lv in levels) * MAX_PER_ERROR
     percent = 100 * activity.xp / total_max if total_max else 0
-    outcome["rank"] = next(name for threshold, name in RANKS if percent >= threshold)
+    outcome["rank"] = "expert" if percent >= 80 else "mid" if percent >= 50 else "beginner"  # translated per activity
     outcome["xp"] = activity.xp
     outcome["max_xp"] = total_max
     activity.result = outcome
@@ -485,7 +481,7 @@ def view(activity: LearningActivity) -> dict:
             "found": POINTS_FOUND, "category": POINTS_CATEGORY, "explanation": POINTS_EXPLANATION,
             "fix": POINTS_FIX, "false_alarm": FALSE_ALARM_COST, "hint": HINT_COST,
         },
-        "badges": [{"id": b, "icon": BADGES[b][0], "name": BADGES[b][1], "description": BADGES[b][2]} for b in activity.badges],
+        "badges": [{"id": b, "icon": BADGE_ICONS[b]} for b in activity.badges],
         "levels": [_public_level(lv) for lv in activity.levels],
         "result": activity.result,
     }

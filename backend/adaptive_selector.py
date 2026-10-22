@@ -30,14 +30,6 @@ MAX_KNOWLEDGE_OPEN_ENDED = 1
 PASS_FRACTION = 0.5  # a question counts as "answered correctly" at ≥ 50% of its points
 
 BLOOM_LEVELS = ["remembering", "understanding", "applying", "analyzing", "evaluating", "creating"]
-BLOOM_AR = {
-    "remembering": "التذكر",
-    "understanding": "الفهم",
-    "applying": "التطبيق",
-    "analyzing": "التحليل",
-    "evaluating": "التقييم",
-    "creating": "الابتكار",
-}
 
 SKILL_TYPES = ["scenario", "true_false", "ordering", "error_detection", "multiple_choice"]
 SKILL_BLOOM_BY_DIFFICULTY = {1: "applying", 2: "applying", 3: "analyzing", 4: "evaluating", 5: "evaluating"}
@@ -63,8 +55,9 @@ class Target:
     difficulty: int
     bloom_level: str
     allowed_types: list[str]  # the engine narrows this to one type
-    reason: str  # Arabic; shown in the question review and sent to the AI
+    reason: str  # English; sent to the AI
     previous_on_competency: list = field(default_factory=list)
+    reason_code: dict = field(default_factory=dict)  # {"code", "params"}; translated by the frontend
 
 
 def passed(q) -> bool:
@@ -109,16 +102,18 @@ def next_skill_target(skills: list[dict], answered: list, start_difficulty: dict
     if last and len(by_skill.get(last.competency_id, [])) < QUESTIONS_PER_SKILL:
         if passed(last):
             difficulty = _clamp(last.difficulty + 1)
+            code = {"code": "skill_up", "params": {"difficulty": last.difficulty}}
             reason = (
-                f"أجاب المتدرب عن السؤال السابق في هذه المهارة إجابة صحيحة (صعوبة {last.difficulty}). "
-                "السؤال التالي أصعب وعلى جانب مختلف من المهارة، للتأكد من أن الكفاءة راسخة وليست مصادفة."
+                f"The trainee answered the previous question on this skill correctly (difficulty {last.difficulty}). "
+                "The next question is harder and on a different facet, to confirm solid competence rather than luck."
             )
         else:
             difficulty = _clamp(last.difficulty - 1)
+            code = {"code": "skill_down", "params": {"difficulty": last.difficulty}}
             reason = (
-                f"أخطأ المتدرب في السؤال السابق في هذه المهارة (صعوبة {last.difficulty}). "
-                "السؤال التالي أبسط ويركز على أساس المهارة، لنميّز بين نقص الأساس وخطأ عابر، "
-                "ويكشف إن كان سوء الفهم الذي ظهر في الإجابة السابقة ما زال قائمًا."
+                f"The trainee got the previous question on this skill wrong (difficulty {last.difficulty}). "
+                "The next question is simpler and on the core of the skill, to tell a missing basic from a slip, "
+                "and to reveal whether the misconception shown in the previous answer persists."
             )
         qtype = _least_used([t for t in SKILL_TYPES if t != last.question_type], answered)
         return Target(
@@ -128,6 +123,7 @@ def next_skill_target(skills: list[dict], answered: list, start_difficulty: dict
             allowed_types=[qtype],
             reason=reason,
             previous_on_competency=by_skill[last.competency_id],
+            reason_code=code,
         )
 
     # Otherwise open the next skill, most important first.
@@ -136,10 +132,11 @@ def next_skill_target(skills: list[dict], answered: list, start_difficulty: dict
         return None
     skill = remaining[0]
     difficulty = (start_difficulty or {}).get(skill["competency_id"]) or _running_level(answered)
+    code = {"code": "skill_new" if answered else "first_question", "params": {"difficulty": difficulty}}
     reason = (
-        "أول سؤال في هذه المهارة. الصعوبة مبنية على مستوى المتدرب في الأسئلة السابقة."
+        "First question on this skill; the difficulty follows the trainee's level so far."
         if answered
-        else "أول سؤال في التقييم: صعوبة متوسطة لتحديد نقطة البداية."
+        else "First question of the assessment: medium difficulty to find the starting point."
     )
     return Target(
         competency_id=skill["competency_id"],
@@ -147,6 +144,7 @@ def next_skill_target(skills: list[dict], answered: list, start_difficulty: dict
         bloom_level=SKILL_BLOOM_BY_DIFFICULTY[difficulty],
         allowed_types=[_least_used(SKILL_TYPES, answered)],
         reason=reason,
+        reason_code=code,
     )
 
 
@@ -202,22 +200,25 @@ def next_knowledge_target(
         prev = previous[-1]
         ok = passed(prev)
         level = _step(prev.bloom_level, up=ok)
+        code = {"code": "bloom_up" if ok else "bloom_down", "params": {"from": prev.bloom_level, "to": level, "extra": why == "extra"}}
         reason = (
-            f"أجاب المتدرب صحيحًا عن سؤال في هذا المجال بمستوى «{BLOOM_AR[prev.bloom_level]}»، فننتقل إلى مستوى أعلى: «{BLOOM_AR[level]}»."
+            f"The trainee answered a '{prev.bloom_level}' question in this area correctly, so we climb to '{level}'."
             if ok
-            else f"أخطأ المتدرب في سؤال بمستوى «{BLOOM_AR[prev.bloom_level]}»، فننزل إلى مستوى «{BLOOM_AR[level]}» لنتحقق من الأساس."
+            else f"The trainee missed a '{prev.bloom_level}' question, so we go down to '{level}' to check the basics."
         )
         if why == "extra":
-            reason = "سؤال إضافي لأن الأدلة في هذا المجال غير حاسمة. " + reason
+            reason = "Extra question because the evidence in this area is inconclusive. " + reason
     elif start_level and area["competency_id"] in start_level:
         level = start_level[area["competency_id"]]
-        reason = f"أول سؤال في هذا المجال، ويبدأ من مستوى «{BLOOM_AR[level]}» بناءً على ما تدرّب عليه المتدرب."
+        code = {"code": "bloom_start_trained", "params": {"to": level}}
+        reason = f"First question in this area; it starts at '{level}' based on what the trainee trained on."
     else:
         level = _start_level(area, skill_results)
+        code = {"code": "bloom_start_low" if level == "remembering" else "bloom_start", "params": {"to": level}}
         reason = (
-            "أول سؤال في هذا المجال، ويبدأ من مستوى «التذكر» لأن مهارة مرتبطة به ظهرت فيها فجوة."
+            "First question in this area; it starts at 'remembering' because a related skill showed a gap."
             if level == "remembering"
-            else "أول سؤال في هذا المجال، ويبدأ من مستوى «الفهم»."
+            else "First question in this area; it starts at 'understanding'."
         )
 
     allowed = list(KNOWLEDGE_TYPES_BY_LEVEL[level])
@@ -250,4 +251,5 @@ def next_knowledge_target(
         allowed_types=[_least_used(allowed, answered)],
         reason=reason,
         previous_on_competency=previous,
+        reason_code={**code, "params": {**code["params"], "to": level}},
     )

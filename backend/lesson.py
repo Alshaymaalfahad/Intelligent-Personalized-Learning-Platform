@@ -15,49 +15,38 @@ from sqlalchemy.orm import Session
 from .activity_schemas import LessonContent
 from .assessment_engine import EngineError
 from .gap_analyzer import TARGET_SCORE
+from .i18n import lang_of, strip_enumerator
 from .learning_engine import gap_context, journey_step
-from .models import Assessment, LearningActivity, Lesson
+from .models import Assessment, LearningActivity, Lesson, public_id
 from .question_generator import generate_validated, render_prompt
 
 DEPTHS = {
     "compound": {
-        "label": "فجوة مركّبة",
-        "description": "تحتاج المفهوم والتطبيق معًا: سنشرح المفهوم من الأساس، ثم مثالًا محلولًا.",
         "prompt": "Compound gap (does not know AND does not apply): explain the concept from the basics in 3–5 sections, then the worked example.",
     },
     "application": {
-        "label": "فجوة تطبيق",
-        "description": "تعرف المفهوم لكن التطبيق يحتاج تدريبًا: تذكير سريع، والتركيز على المثال المحلول.",
         "prompt": "Application gap (knows the concept but does not apply it): only a quick reminder of the concept in 1–2 short sections; put the weight on the worked example and on HOW to apply it.",
     },
     "shallow": {
-        "label": "فهم سطحي",
-        "description": "تطبّق القاعدة لكن «الليش» وراءها غير واضح: سنشرح السبب لا القاعدة فقط.",
         "prompt": "Shallow understanding (applies the rule but not the reasoning): explain the WHY behind the rule in 2–3 sections — causes, consequences, when the rule does NOT apply.",
     },
     "mastery": {
-        "label": "إتقان مبدئي",
-        "description": "مستواك قريب من المطلوب: تقدر تتخطى الشرح وتدخل التحدي مباشرة، والشرح متاح متى احتجته.",
         "prompt": "Initial mastery: a compact recap in 1–2 sections focused on the subtle points experienced people still miss.",
     },
 }
 
 STYLES = {
     "brief": {
-        "label": "📄 شرح مختصر",
         "prompt": "Brief: clear, compact paragraphs with a heading each; the most direct path to understanding.",
     },
     "story": {
-        "label": "📚 قصة من العمل",
         "prompt": "Story: teach through a short story of a colleague facing this exact problem at work; each section is one beat of the story, and the lesson emerges from what happened and why.",
     },
     "visual": {
-        "label": "🗺️ إنفوجرافيك",
-        "prompt": "Visual (infographic): each section is a compact visual block — a fitting emoji, a 2–5 word heading, and at most 2 short lines (comparisons, flows like «أ ← ب ← ج», do/don't). No long paragraphs.",
+        "prompt": "Visual (infographic): each section is a compact visual block — a fitting emoji, a 2–5 word heading, and at most 2 short lines (comparisons, flows like \"A → B → C\", do/don't). No long paragraphs.",
     },
     "interactive": {
-        "label": "🧪 مثال تفاعلي",
-        "prompt": "Interactive: each section starts with `reveal_question` — a short question the trainee thinks about first (e.g. «برأيك، هل هذا الرقم خطأ؟») — and the `body` is the answer and the reasoning, revealed when they click.",
+        "prompt": "Interactive: each section starts with `reveal_question` — a short question the trainee thinks about first (e.g. \"Do you think this number is an error?\") — and the `body` is the answer and the reasoning, revealed when they click.",
     },
 }
 
@@ -163,6 +152,7 @@ def create(db: Session, assessment: Assessment, competency_id: str, style: str) 
     ctx = gap_context(assessment, competency_id)
     prompt = render_prompt(
         "lesson.txt",
+        lang=lang_of(assessment.trainee),
         specialization=assessment.trainee.specialization,
         competency=json.dumps(ctx["competency"], ensure_ascii=False),
         gap_evidence=json.dumps(ctx["evidence"], ensure_ascii=False, indent=2) if ctx["evidence"] else "(no wrong answers recorded)",
@@ -179,7 +169,7 @@ def create(db: Session, assessment: Assessment, competency_id: str, style: str) 
     lesson = Lesson(assessment_pk=assessment.id, competency_id=competency_id, depth=depth, style=style, content=content)
     db.add(lesson)
     db.flush()
-    lesson.lesson_id = f"LS-{lesson.id:04d}"
+    lesson.lesson_id = public_id("LS")
     db.commit()
     return lesson
 
@@ -219,15 +209,12 @@ def view(lesson: Lesson) -> dict:
         "lesson_id": lesson.lesson_id,
         "competency_id": lesson.competency_id,
         "depth": lesson.depth,
-        "depth_label": DEPTHS[lesson.depth]["label"],
-        "depth_description": DEPTHS[lesson.depth]["description"],
         "style": lesson.style,
-        "style_label": STYLES[lesson.style]["label"],
         "completed": lesson.completed,
         "why": {"title": c["why_title"], "story": c["why_story"], "impact": c["why_impact"]},
         "explanation": {"title": c["explanation_title"], "sections": c["sections"], "takeaways": c["takeaways"]},
         "example": {
-            "problem": c["example_problem"], "lines": c["example_lines"], "steps": c["example_steps"],
+            "problem": c["example_problem"], "lines": c["example_lines"], "steps": [{**s, "step": strip_enumerator(s["step"])} for s in c["example_steps"]],
             "final_question": c["final_step_question"], "final_options": c["final_step_options"],
         },
         "check": [{"question": q["question"], "options": q["options"]} for q in c["check"]],
@@ -241,10 +228,8 @@ def status(db: Session, assessment: Assessment, competency_id: str) -> dict:
     lesson = current(db, assessment, competency_id)
     return {
         "depth": depth,
-        "depth_label": DEPTHS[depth]["label"],
-        "depth_description": DEPTHS[depth]["description"],
         "can_skip": depth == "mastery",
-        "styles": [{"id": k, "label": v["label"]} for k, v in STYLES.items()],
+        "styles": list(STYLES),
         "suggested_style": suggested_style(db, assessment),
         "lesson": view(lesson) if lesson else None,
     }

@@ -24,6 +24,7 @@ from . import config
 from .adaptive_selector import QUESTIONS_PER_SECTION, QUESTIONS_PER_SKILL, next_knowledge_target, next_skill_target
 from .answer_evaluator import grade_choice, grade_open_answers, grade_ordering
 from .gap_analyzer import build_report, competency_results
+from .i18n import lang_of
 from .models import Assessment, Question, Trainee, utcnow
 from .question_generator import plan_knowledge, plan_skills, write_question
 
@@ -166,7 +167,8 @@ def _add_next_question(db: Session, assessment: Assessment, phase: str) -> None:
     if is_reassessment(assessment):
         context = question_context(assessment, target.competency_id)
         if not target.previous_on_competency:
-            target.reason = "إعادة قياس: موقف جديد لم يره المتدرب للتحقق من انتقال أثر التعلم. " + target.reason
+            target.reason = "Reassessment: a new situation the trainee has not seen, to verify transfer of learning. " + target.reason
+            target.reason_code = {**target.reason_code, "params": {**target.reason_code.get("params", {}), "reassessment": True}}
     competency = next(c for c in blueprint if c["competency_id"] == target.competency_id)
     position = len(answered) + 1
 
@@ -239,7 +241,7 @@ def submit_answer(db: Session, assessment: Assessment, phase: str, question_id: 
         q = pending_question(assessment, phase)
         q.trainee_answer = answer
         if q.is_open:
-            grade_open_answers([q], assessment.trainee.specialization)
+            grade_open_answers([q], assessment.trainee.specialization, lang_of(assessment.trainee))
         elif q.is_ordering:
             grade_ordering(q)
         else:
@@ -320,6 +322,10 @@ def state_view(assessment: Assessment) -> dict:
         "kind": assessment.kind or "initial",
         "phase": phase,
         "total": section_total(assessment, phase) if phase else QUESTIONS_PER_SECTION,
+        "sections": {
+            name: {"total": section_total(assessment, name), "answered": len(_answered(assessment, name))}
+            for name in PHASES
+        },
         "answered": 0,
         "question": None,
     }
@@ -357,6 +363,7 @@ def review_view(assessment: Assessment) -> dict:
                 "bloom_level": q.bloom_level,
                 "difficulty": q.difficulty,
                 "adaptation_reason": q.adaptation_reason,
+                "adaptation_code": q.adaptation_code,
                 "learning_objective": q.learning_objective,
                 "correct_option_index": q.correct_option_index,
                 "correct_order": q.correct_order,

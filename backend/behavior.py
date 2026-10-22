@@ -72,8 +72,9 @@ def record_event(
     db.flush()  # the session does not autoflush; later reads in this request must see it
 
 
-def _signal(sid: str, icon: str, title: str, value: str, interpretation: str, decision: str) -> dict:
-    return {"id": sid, "icon": icon, "title": title, "value": value, "interpretation": interpretation, "decision": decision}
+def _signal(sid: str, icon: str, **params) -> dict:
+    """A signal is a code + numbers; the frontend writes its title, interpretation and decision."""
+    return {"id": sid, "icon": icon, "params": params}
 
 
 ATTEMPT_EVENTS = {"attempt", "mark_found", "false_alarm"}
@@ -127,40 +128,19 @@ def summarize(activities: list[LearningActivity], events: list[LearningEvent]) -
     signals = []
     if repeated:
         top = max(repeated, key=repeated.get)
-        signals.append(_signal(
-            "repeated_error", "❌", "نوع الخطأ وتكراره", f"«{top}» تكرر {repeated[top]} مرات",
-            "خطأ متكرر في المفهوم نفسه.", "مهمة بديلة أو توضيح موجّه لهذا المفهوم.",
-        ))
+        signals.append(_signal("repeated_error", "❌", category=top, count=repeated[top]))
     if hints_per_level and sum(hints_per_level) / len(hints_per_level) >= HIGH_HINTS_PER_LEVEL:
-        signals.append(_signal(
-            "hint_reliance", "💡", "التلميحات المستخدمة", f"{sum(hints_per_level)} تلميحات في {len(hints_per_level)} مراحل",
-            "اعتماد كبير على التلميحات.", "تقليل الدعم تدريجيًا ثم اختبار الاستقلالية.",
-        ))
+        signals.append(_signal("hint_reliance", "💡", hints=sum(hints_per_level), levels=len(hints_per_level)))
     if wrong_rate >= MANY_FALSE_ALARMS and len(attempts) >= 3:
-        signals.append(_signal(
-            "many_attempts", "🔁", "عدد المحاولات", f"{len(wrong)} محاولات خاطئة من {len(attempts)}",
-            "محاولات كثيرة قبل الوصول للإجابة.", "تحليل موضع التعثر، دون افتراض ضعف تلقائي.",
-        ))
+        signals.append(_signal("many_attempts", "🔁", wrong=len(wrong), total=len(attempts)))
     if median_time is not None and median_time >= SLOW_SECONDS and (repeated or wrong_rate >= MANY_FALSE_ALARMS):
-        signals.append(_signal(
-            "unusual_time", "⏱️", "الوقت في المهمة", f"حوالي {round(median_time)} ثانية لكل إجابة صحيحة",
-            "وقت غير معتاد مع إشارات تعثر أخرى.", "فحص وضوح المهمة أو صعوبتها.",
-        ))
+        signals.append(_signal("unusual_time", "⏱️", seconds=round(median_time)))
     if explanation_rate is not None and action_rate >= GOOD_DETECTION and explanation_rate < WEAK_JUSTIFICATION:
-        signals.append(_signal(
-            "weak_justification", "🧠", "التبرير وجودته", f"ينفّذ صحيحًا {round(action_rate * 100)}% ويبرر صحيحًا {round(explanation_rate * 100)}%",
-            "إجابة صحيحة مع تبرير ضعيف.", "سؤال متابعة يختبر الفهم الحقيقي.",
-        ))
+        signals.append(_signal("weak_justification", "🧠", action=round(action_rate * 100), explanation=round(explanation_rate * 100)))
     if len(accuracy) >= 2 and accuracy[-1] - accuracy[0] >= IMPROVEMENT:
-        signals.append(_signal(
-            "improving", "📈", "التغير بين المحاولات", f"من {round(accuracy[0] * 100)}% إلى {round(accuracy[-1] * 100)}%",
-            "تحسن بعد التغذية الراجعة.", "رفع التحدي واختبار النقل إلى موقف جديد.",
-        ))
+        signals.append(_signal("improving", "📈", start=round(accuracy[0] * 100), end=round(accuracy[-1] * 100)))
     if reviews:
-        signals.append(_signal(
-            "lesson_reviews", "📖", "الرجوع للشرح", f"رجع للشرح {len(reviews)} مرة أثناء النشاط",
-            "يبحث عن الفهم بدل التخمين.", "سلوك إيجابي؛ يبقى الشرح متاحًا دون خصم.",
-        ))
+        signals.append(_signal("lesson_reviews", "📖", count=len(reviews)))
 
     return {
         "metrics": {

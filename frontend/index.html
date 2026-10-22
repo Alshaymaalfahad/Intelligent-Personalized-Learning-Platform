@@ -1,42 +1,18 @@
 <!doctype html>
-<html lang="ar" dir="rtl">
+<html lang="en" dir="ltr">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>منصة التعلم الفردي الذكي</title>
-  <link rel="stylesheet" href="css/style.css?v=3">
+  <title>Intelligent Learning</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="css/style.css?v=18">
+  <script src="js/i18n.js?v=18"></script>
 </head>
 <body>
-  <main class="container">
-    <header class="hero">
-      <h1>منصة التعلم الفردي الذكي</h1>
-      <p class="muted">Intelligent Personalized Learning Platform</p>
-      <p>تقييم يتكيّف مع إجاباتك، ثم تقرير يوضح مستواك وما ينبغي أن تتعلمه أولًا.</p>
-    </header>
-
-    <p class="notice hidden" id="ai-warning">مفتاح الذكاء الاصطناعي غير مُعدّ على الخادم بعد، لذلك لن يعمل التقييم. شغّل: <code dir="ltr">python -m backend.set_api_key</code></p>
-
-    <section class="card">
-      <h2>مراحل التقييم</h2>
-      <ol class="steps">
-        <li>إنشاء ملف المتدرب</li>
-        <li>قياس المهارة</li>
-        <li>قياس المعرفة</li>
-        <li>تقرير الفجوات وأولويات التعلم</li>
-      </ol>
-      <a class="btn" href="profile.html">إنشاء ملف المتدرب</a>
-    </section>
-
-    <section class="card">
-      <h2>لديك ملف أو تقييم سابق؟</h2>
-      <form id="lookup-form" class="inline-form">
-        <label for="lookup-id" class="sr-only">رقم المتدرب</label>
-        <input id="lookup-id" type="text" placeholder="رقم المتدرب TR-0001 أو رقم التقييم AS-0001" dir="ltr" required>
-        <button type="submit" class="btn btn-secondary">عرض الملف</button>
-      </form>
-    </section>
-  </main>
-
-  <script src="js/index.js?v=3"></script>
+  <main id="page"></main>
+  <script src="js/core.js?v=18"></script>
+  <script src="js/index.js?v=18"></script>
 </body>
 </html>

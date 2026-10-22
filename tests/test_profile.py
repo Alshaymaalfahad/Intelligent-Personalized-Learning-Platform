@@ -96,7 +96,7 @@ def test_specializations_endpoint_and_frontend_served():
     with client() as c:
         specs = c.get("/api/specializations").json()
         assert any(s["name"] == "Information Systems" and s["interests"] for s in specs)
-        assert c.get("/profile.html").status_code == 200
+        assert c.get("/skills.html").status_code == 200
 
 
 def test_access_code_protects_pages_and_api(monkeypatch):
@@ -112,3 +112,23 @@ def test_access_code_protects_pages_and_api(monkeypatch):
         assert c.get("/api/specializations").headers["www-authenticate"].startswith("Basic")
         assert c.get("/api/specializations", headers=auth("wrong")).status_code == 401
         assert c.get("/api/specializations", headers=auth("s3cret")).status_code == 200
+
+
+def test_language_is_stored_and_errors_follow_the_request_language():
+    with client() as c:
+        res = c.post("/api/trainees", json={**VALID, "language": "ar"})
+        assert res.json()["language"] == "ar"
+        assert c.post("/api/trainees", json=VALID).json()["language"] == "en"  # English by default
+        en = c.post("/api/assessments", json={"trainee_id": "TR-0001"}).json()["assessment_id"]
+        assert c.get(f"/api/assessments/{en}/report", headers={"X-Lang": "en"}).json()["detail"].startswith("The report isn't ready")
+        assert c.get(f"/api/assessments/{en}/report", headers={"X-Lang": "ar"}).json()["detail"].startswith("التقرير غير جاهز")
+
+
+def test_progress_endpoint_reports_real_activity():
+    with client() as c:
+        trainee = c.post("/api/trainees", json=VALID).json()["trainee_id"]
+        aid = c.post("/api/assessments", json={"trainee_id": trainee}).json()["assessment_id"]
+        p = c.get(f"/api/trainees/{trainee}/progress").json()
+    assert p["xp"] == 0 and p["level"] == 1 and p["badges"] == []
+    assert p["streak_days"] == 1  # active today
+    assert p["latest_assessment"]["assessment_id"] == aid

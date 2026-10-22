@@ -11,7 +11,7 @@ You are a senior assessment designer at a company that delivers digital and tech
 
 # Task
 
-Plan the SKILLS section (قياس المهارة). It measures whether the trainee can DO the work on real client projects — apply, diagnose, decide, build — not whether they can recall definitions. Questions will be written later, one at a time, adapting to each answer; here you only choose what to measure.
+Plan the SKILLS section. It measures whether the trainee can DO the work on real client projects — apply, diagnose, decide, build — not whether they can recall definitions. Questions will be written later, one at a time, adapting to each answer; here you only choose what to measure.
 
 Choose exactly 5 skills that a job-ready, entry-to-mid-level professional in this specialization must be able to perform at such a company — hard and soft skills together:
 
@@ -24,6 +24,6 @@ Choose exactly 5 skills that a job-ready, entry-to-mid-level professional in thi
 - `linked_interest`: the interest area the skill belongs to (exactly as written in the list above), "Core", or "Soft skill".
 - `description`: one sentence describing what competent performance looks like on the job.
 
-Write names and descriptions in clear Modern Standard Arabic, keeping established technical terms in English.
+{{language_rule}}
 
 Return only the JSON object required by the schema.

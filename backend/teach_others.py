@@ -13,6 +13,7 @@ import random
 from .activity_schemas import SaudQuizOutput, TeachFirstOutput, TeachNextOutput, TeachTurn
 from .assessment_engine import EngineError
 from .config import AI_FAST_EFFORT
+from .i18n import lang_of
 from .question_generator import generate_validated, render_prompt
 
 TOTAL_LEVELS = 4
@@ -20,8 +21,8 @@ PROMPT = "teach_level.txt"
 FIRST_OUTPUT = TeachFirstOutput
 NEXT_OUTPUT = TeachNextOutput
 MISSION_FIELDS = (
-    "`title`, `story` (2–3 short Arabic sentences, e.g. «هذا سعود، متدرب جديد بدأ اليوم، ومدير الفريق طلب منك تعلّمه…»), "
-    "`goal`, and `win_condition` (e.g. «ينجح سعود في اختباره»)."
+    "`title`, `story` (2–3 short sentences, e.g. \"This is Saud, a new trainee who started today; the team lead asked you to teach him…\"), "
+    "`goal`, and `win_condition` (e.g. \"Saud passes his test\")."
 )
 RULES = {"meter": 30, "quiz": 30}
 ROUND_MAX_XP = 30
@@ -103,6 +104,7 @@ def _turn(activity, level: dict, text: str) -> TeachTurn:
     ] + [{"from": "trainee", "text": _untrusted(text)}]
     prompt = render_prompt(
         "teach_turn.txt",
+        lang=lang_of(activity.assessment.trainee),
         specialization=activity.assessment.trainee.specialization,
         concept=c["concept"],
         misconception=c["misconception"],
@@ -130,6 +132,7 @@ def _quiz(activity, level: dict, text: str) -> SaudQuizOutput:
     misconceptions = [lv["content"]["misconception"] for lv in activity.levels[:-1]]
     prompt = render_prompt(
         "teach_quiz.txt",
+        lang=lang_of(activity.assessment.trainee),
         specialization=activity.assessment.trainee.specialization,
         misconceptions=json.dumps(misconceptions, ensure_ascii=False),
         teaching=json.dumps(taught, ensure_ascii=False, indent=2),
@@ -238,7 +241,3 @@ def notes(level: dict) -> dict:
 def extra_badges(activity, level: dict) -> list[str]:
     result = level["state"]["quiz_result"]
     return ["inspiring_teacher"] if result and all(r["saud_correct"] for r in result) else []
-
-
-def rank_names(activity) -> tuple[str, str, str]:
-    return "معلّم مبتدئ", "معلّم متمكن", "معلّم ملهم"

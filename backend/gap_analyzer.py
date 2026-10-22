@@ -4,7 +4,7 @@ Fully deterministic (no AI): the same answers always give the same report.
 Skills and knowledge are scored and reported separately — never averaged together.
 """
 
-from .adaptive_selector import BLOOM_AR, BLOOM_LEVELS, passed
+from .adaptive_selector import BLOOM_LEVELS, passed
 from .learning_activities import activity_card, choose_activities
 
 TARGET_SCORE = 70  # required level (%) for every competency in this prototype
@@ -16,13 +16,7 @@ LOW_CONFIDENCE = 0.6
 IMPORTANCE_WEIGHT = {1: 1.0, 2: 1.5, 3: 2.0}
 LINKED_GAP_BONUS = 10  # a skill gap backed by a knowledge gap (or vice versa) is more urgent
 
-STATUS_LABELS = {
-    "strength": "نقطة قوة مبدئية",
-    "adequate": "مستوى مقبول",
-    "potential_gap": "فجوة محتملة",
-    "likely_gap": "فجوة مرجّحة",
-    "insufficient_evidence": "أدلة غير كافية",
-}
+# Status codes (the frontend translates them): strength | adequate | potential_gap | likely_gap | insufficient_evidence
 GAP_STATUSES = {"potential_gap", "likely_gap"}
 
 
@@ -75,14 +69,12 @@ def competency_results(competencies: list[dict], questions: list, dimension: str
                 for q in linked
             ],
             "status": status,
-            "status_label": STATUS_LABELS[status],
         })
         if dimension == "knowledge":
             # Highest Bloom level the trainee answered correctly in this area.
             reached = [q.bloom_level for q in linked if passed(q)]
             top = max(reached, key=BLOOM_LEVELS.index) if reached else None
             results[-1]["bloom_reached"] = top
-            results[-1]["bloom_reached_label"] = BLOOM_AR[top] if top else "لم يتحقق مستوى بعد"
     return results
 
 
@@ -108,18 +100,16 @@ def _insights(skills: list[dict], knowledge: list[dict]) -> list[dict]:
             k_ok = k["score"] >= TARGET_SCORE
             s_ok = s["score"] >= TARGET_SCORE
             if k_ok and not s_ok:
-                text = f"«{s['name']}»: تعرف المفهوم، والتطبيق يحتاج تدريبًا."
                 kind = "knows_not_applies"
             elif s_ok and not k_ok:
-                text = f"«{s['name']}»: تطبيقك جيد، والأساس النظري يحتاج تقوية."
                 kind = "applies_not_knows"
             elif not k_ok and not s_ok:
-                text = f"«{s['name']}»: ابدأ بالمفهوم ثم التطبيق."
                 kind = "both_weak"
             else:
                 continue
-            if all(i["text"] != text for i in insights):  # short texts: avoid repeating one skill
-                insights.append({"type": kind, "skill_id": sid, "knowledge_id": k["competency_id"], "text": text})
+            if all(i["skill_id"] != sid or i["type"] != kind for i in insights):  # one note per skill and kind
+                insights.append({"type": kind, "skill_id": sid, "skill_name": s["name"],
+                                 "knowledge_id": k["competency_id"], "knowledge_name": k["name"]})
     return insights
 
 
@@ -138,14 +128,14 @@ def _priorities(skills: list[dict], knowledge: list[dict]) -> list[dict]:
             continue
         evidence_weight = 1.0 if r["status"] != "insufficient_evidence" else 0.6
         priority = gap * IMPORTANCE_WEIGHT[r["importance"]] * evidence_weight
-        reasons = [f"الفرق عن المستوى المطلوب {gap:.0f} نقطة"]
+        reasons = [{"code": "gap_points", "value": round(gap)}]
         if r["importance"] == 3:
-            reasons.append("كفاءة أساسية في التخصص")
+            reasons.append({"code": "core"})
         if r["competency_id"] in linked_to_weak:
             priority += LINKED_GAP_BONUS
-            reasons.append("ترتبط بفجوة أخرى في " + ("المعرفة" if r["dimension"] == "skill" else "المهارات"))
+            reasons.append({"code": "linked_knowledge" if r["dimension"] == "skill" else "linked_skill"})
         if r["status"] == "insufficient_evidence":
-            reasons.append("الأدلة محدودة وتحتاج إلى تأكيد")
+            reasons.append({"code": "limited_evidence"})
         needs.append({
             "competency_id": r["competency_id"],
             "name": r["name"],
@@ -153,9 +143,9 @@ def _priorities(skills: list[dict], knowledge: list[dict]) -> list[dict]:
             "score": r["score"],
             "target_score": TARGET_SCORE,
             "status": r["status"],
-            "status_label": r["status_label"],
+            "skill_kind": r.get("skill_kind"),
             "priority_score": round(priority, 1),
-            "reason": "، ".join(reasons),
+            "reasons": reasons,
         })
     needs.sort(key=lambda n: n["priority_score"], reverse=True)
     for rank, n in enumerate(needs, start=1):
@@ -190,7 +180,7 @@ def _journey(needs: list[dict], results: dict[str, dict]) -> list[dict]:
 
 
 def _ref(r: dict) -> dict:
-    return {k: r[k] for k in ("competency_id", "name", "dimension", "score", "status", "status_label")}
+    return {k: r[k] for k in ("competency_id", "name", "dimension", "score", "status")}
 
 
 def build_report(assessment, skill_results: list[dict], knowledge_results: list[dict]) -> dict:

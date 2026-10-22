@@ -1,131 +1,24 @@
 <!doctype html>
-<html lang="ar" dir="rtl">
+<html lang="en" dir="ltr">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>الرحلة التعليمية</title>
-  <link rel="stylesheet" href="css/style.css?v=3">
+  <title>Intelligent Learning</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="css/style.css?v=18">
+  <script src="js/i18n.js?v=18"></script>
 </head>
 <body>
-  <main class="container wide">
-    <a class="back" id="back-link" href="index.html">→ العودة إلى الرحلة التعليمية</a>
-
-    <!-- 🎬 → 📖 → 🤝 → ✅ → 🎮 → 🏆 → 📊 -->
-    <ol class="stations" id="stations" aria-label="محطات الرحلة لهذه الفجوة">
-      <li data-station="why">🎬 ليش مهم</li>
-      <li data-station="explain">📖 أنا أشرح</li>
-      <li data-station="together">🤝 نسوي سوا</li>
-      <li data-station="check">✅ تأكد سريع</li>
-      <li data-station="play">🎮 النشاط</li>
-      <li data-station="boss">🏆 التحدي النهائي</li>
-      <li data-station="report">📊 التقرير</li>
-    </ol>
-
-    <section class="card center" id="view-loading" aria-live="polite">
-      <div class="spinner" aria-hidden="true"></div>
-      <p id="loading-text">جارٍ التحميل…</p>
-      <p class="hint" id="loading-hint"></p>
-    </section>
-
-    <section class="card hidden" id="view-error" role="alert">
-      <h2>حدث خطأ</h2>
-      <p id="error-text"></p>
-      <button class="btn hidden" id="retry-btn" type="button">حاول مرة أخرى</button>
-    </section>
-
-    <!-- Briefing before the activity (lesson) -->
-    <section class="hidden" id="view-lesson"></section>
-
-    <!-- Mission card -->
-    <section class="card hidden" id="view-intro">
-      <div class="activity-hero">
-        <span class="activity-icon" id="intro-icon" aria-hidden="true"></span>
-        <div>
-          <p class="muted" id="intro-competency"></p>
-          <h1 id="intro-name"></h1>
-        </div>
-      </div>
-      <div class="mission hidden" id="mission-card">
-        <h2 id="mission-title"></h2>
-        <p id="mission-story"></p>
-        <p><strong>الهدف:</strong> <span id="mission-goal"></span></p>
-        <p><strong>شرط الفوز:</strong> <span id="mission-win"></span></p>
-      </div>
-      <p id="intro-summary"></p>
-      <ul class="rules" id="intro-rules"></ul>
-      <div class="actions">
-        <button class="btn" id="intro-start" type="button">ابدأ المهمة</button>
-        <button class="btn btn-secondary hidden" id="intro-review" type="button">📖 راجع الشرح</button>
-      </div>
-    </section>
-
-    <!-- Level -->
-    <section class="hidden" id="view-level">
-      <div class="game-bar card">
-        <strong id="lv-title"></strong>
-        <span class="game-stat" title="نقاط الخبرة">⭐ <span id="lv-xp"></span> XP</span>
-        <span class="game-stat" id="lv-stat"></span>
-        <button class="btn btn-small btn-secondary" id="lv-review" type="button">📖 راجع الشرح</button>
-        <button class="btn btn-small btn-secondary" id="lv-hint" type="button"></button>
-      </div>
-
-      <div class="mentor" aria-live="polite">
-        <span class="mentor-avatar" aria-hidden="true">🤖</span>
-        <div>
-          <strong>المرشد الذكي</strong>
-          <p id="lv-mentor"></p>
-        </div>
-      </div>
-      <ul class="hint-list hidden" id="lv-hints"></ul>
-
-      <div id="lv-body"></div>
-
-      <div class="actions">
-        <button class="btn" id="lv-finish" type="button">إنهاء المرحلة</button>
-      </div>
-    </section>
-
-    <!-- Level summary -->
-    <section class="card hidden" id="view-summary">
-      <h1 id="sum-title"></h1>
-      <div class="stat-row" id="sum-stats"></div>
-      <div id="sum-badges"></div>
-      <div id="sum-extra"></div>
-      <button class="btn" id="sum-next" type="button"></button>
-    </section>
-
-    <!-- Result -->
-    <section class="card center hidden" id="view-result">
-      <p class="celebrate" aria-hidden="true">🎉</p>
-      <h1 id="res-title"></h1>
-      <p id="res-message"></p>
-      <div class="gap-meter">
-        <div class="gap-meter-labels"><span id="res-before"></span><span id="res-after"></span></div>
-        <div class="bar big"><div class="bar-fill" id="res-bar"></div><div class="bar-target" id="res-target"></div></div>
-        <p class="hint" id="res-target-label"></p>
-      </div>
-      <div class="stat-row" id="res-stats"></div>
-      <div class="badge-row" id="res-badges"></div>
-      <div class="behavior-box hidden" id="res-behavior">
-        <h2>🤖 ماذا لاحظ المرشد عن طريقتك</h2>
-        <ul class="signal-list" id="res-behavior-list"></ul>
-      </div>
-      <div class="actions center-actions" id="res-actions"></div>
-    </section>
-
-    <!-- «📖 راجع الشرح» — free, any time -->
-    <dialog class="lesson-dialog" id="lesson-dialog">
-      <div id="lesson-dialog-body"></div>
-      <form method="dialog" class="actions"><button class="btn" type="submit">رجوع للمهمة</button></form>
-    </dialog>
-  </main>
-
-  <script src="js/activity-kit.js?v=3"></script>
-  <script src="js/activity-hunter.js?v=3"></script>
-  <script src="js/activity-escape.js?v=3"></script>
-  <script src="js/activity-work.js?v=3"></script>
-  <script src="js/activity-shadow.js?v=3"></script>
-  <script src="js/activity-teach.js?v=3"></script>
-  <script src="js/activity.js?v=3"></script>
+  <main id="page"></main>
+  <script src="js/core.js?v=18"></script>
+  <script src="js/activity-kit.js?v=18"></script>
+  <script src="js/activity-hunter.js?v=18"></script>
+  <script src="js/activity-escape.js?v=18"></script>
+  <script src="js/activity-work.js?v=18"></script>
+  <script src="js/activity-shadow.js?v=18"></script>
+  <script src="js/activity-teach.js?v=18"></script>
+  <script src="js/activity.js?v=18"></script>
 </body>
 </html>
